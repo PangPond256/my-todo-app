@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Page</title>
+
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/task-modal.css" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/logo_todo.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/logo_todo.png">
+</head>
+
+<body>
+    <div class="app-shell">
+        <nav class="navbar">
+            <div class="logo-section">
+                <img src="/images/logo_todo.png" alt="logo">
+                <div class="brand-block">
+                    <span class="brand-name">Todo Manager</span>
+                    <small class="brand-tagline">จัดการงานอย่างมีประสิทธิภาพ</small>
+                </div>
+            </div>
+
+            <div class="nav-links">
+                <button class="nav-item active">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    Dashboard
+                </button>
+
+                <button class="nav-item" onclick="window.location.href='/tasks-page'">
+                    <span class="material-symbols-outlined">list_alt</span>
+                    งานทั้งหมด
+                </button>
+
+                <button class="nav-item" onclick="window.location.href='/members-page'">
+                    <span class="material-symbols-outlined">group</span>
+                    จัดการสมาชิก
+                </button>
+
+                <button class="nav-item" onclick="window.location.href='/categories-page'">
+                    <span class="material-symbols-outlined">folder</span>
+                    จัดการหมวดหมู่
+                </button>
+            </div>
+
+            <div class="user-profile">
+                <div id="user-avatar"></div>
+                <div class="user-info">
+                    <span class="user-name"></span>
+                    <span class="user-email"></span>
+                </div>
+                <button class="logout-btn" onclick="logout()">
+                    <span class="material-symbols-outlined">logout</span>
+                </button>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div class="page-title-wrap">
+                    <div class="page-icon">
+                        <span class="material-symbols-outlined">auto_awesome</span>
+                    </div>
+                    <div>
+                        <h1>Dashboard</h1>
+                        <p>ภาพรวมงานของคุณวันนี้</p>
+                    </div>
+                </div>
+
+                <button class="btn-primary btn-add">
+                    <span class="material-symbols-outlined">add</span>
+                    เพิ่มงานใหม่
+                </button>
+            </header>
+
+            <section class="stats-grid">
+                <article class="stat-card stat-blue">
+                    <div>
+                        <p class="stat-label">งานทั้งหมด</p>
+                        <h2 id="total-tasks">0</h2>
+                    </div>
+                    <div class="stat-icon blue">
+                        <span class="material-symbols-outlined">assignment</span>
+                    </div>
+                </article>
+
+                <article class="stat-card stat-yellow">
+                    <div>
+                        <p class="stat-label">รอดำเนินการ</p>
+                        <h2 id="pending-tasks">0</h2>
+                    </div>
+                    <div class="stat-icon orange">
+                        <span class="material-symbols-outlined">schedule</span>
+                    </div>
+                </article>
+
+                <article class="stat-card stat-pink">
+                    <div>
+                        <p class="stat-label">กำลังทำ</p>
+                        <h2 id="doing-tasks">0</h2>
+                    </div>
+                    <div class="stat-icon pink">
+                        <span class="material-symbols-outlined">pending</span>
+                    </div>
+                </article>
+
+                <article class="stat-card stat-green">
+                    <div>
+                        <p class="stat-label">เสร็จสิ้น</p>
+                        <h2 id="done-tasks">0</h2>
+                    </div>
+                    <div class="stat-icon green">
+                        <span class="material-symbols-outlined">check_circle</span>
+                    </div>
+                </article>
+            </section>
+
+            <section class="two-col-grid">
+                <article class="panel">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <div class="panel-icon purple">
+                                <span class="material-symbols-outlined">bar_chart</span>
+                            </div>
+                            <div>
+                                <h3>การกระจายตามระดับความสำคัญ</h3>
+                                <p>แยกตามลำดับความสำคัญ</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="priorityChart"></canvas>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <div class="panel-icon magenta">
+                                <span class="material-symbols-outlined">pie_chart</span>
+                            </div>
+                            <div>
+                                <h3>สถานะงาน</h3>
+                                <p>สัดส่วนความคืบหน้า</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-box status-chart-box">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </article>
+            </section>
+
+            <section class="stack-grid">
+                <article class="panel soft-pink">
+                    <div class="panel-head between">
+                        <div class="panel-title">
+                            <div class="panel-icon magenta">
+                                <span class="material-symbols-outlined">group</span>
+                            </div>
+                            <div>
+                                <h3>สมาชิกในทีม</h3>
+                                <p class="member-count">ทั้งหมด 0 คน</p>
+                            </div>
+                        </div>
+                        <button class="btn-outline" onclick="window.location.href='/members-page'">จัดการสมาชิก</button>
+                    </div>
+                    <div id="team-list" class="team-list"></div>
+                </article>
+
+                <article class="panel soft-cyan">
+                    <div class="panel-head between">
+                        <div class="panel-title">
+                            <div class="panel-icon blue">
+                                <span class="material-symbols-outlined">folder</span>
+                            </div>
+                            <div>
+                                <h3>หมวดหมู่งาน</h3>
+                                <p class="category-count">ทั้งหมด 0 หมวดหมู่</p>
+                            </div>
+                        </div>
+                        <button class="btn-outline cyan"
+                            onclick="window.location.href='/categories-page'">จัดการหมวดหมู่</button>
+                    </div>
+                    <div id="category-list" class="category-list"></div>
+                </article>
+            </section>
+
+            <section class="two-col-grid bottom-panels">
+                <article class="panel soft-blue">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <div class="panel-icon blue">
+                                <span class="material-symbols-outlined">alarm</span>
+                            </div>
+                            <div>
+                                <h3>งานที่ใกล้ถึงกำหนด</h3>
+                                <p>ติดตามงานสำคัญของคุณ</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="upcoming-tasks-list" class="task-mini-list"></div>
+                </article>
+
+                <article class="panel soft-red">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <div class="panel-icon red">
+                                <span class="material-symbols-outlined">error</span>
+                            </div>
+                            <div>
+                                <h3>งานเกินกำหนด</h3>
+                                <p>ต้องดำเนินการด่วน</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="overdue-tasks-list" class="task-mini-list"></div>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <div id="taskModal" class="modal">
+        <div class="modal-content task-modal-premium">
+            <div class="modal-header">
+                <div class="title-with-icon">
+                    <div class="modal-title-icon">
+                        <span class="material-symbols-outlined">add_task</span>
+                    </div>
+                    <div>
+                        <h2>เพิ่มงานใหม่</h2>
+                        <p>สร้างงานใหม่และกำหนดรายละเอียดได้ทันที</p>
+                    </div>
+                </div>
+    
+                <button type="button" class="close-btn" onclick="closeTaskModal()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+    
+            <form id="addTaskForm" class="task-form">
+                <div class="form-group">
+                    <label>ชื่องาน *</label>
+                    <input type="text" name="title" placeholder="ระบุชื่องาน" required>
+                </div>
+    
+                <div class="form-group">
+                    <label>รายละเอียด</label>
+                    <textarea name="description" rows="4" placeholder="ระบุรายละเอียดงาน"></textarea>
+                </div>
+    
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>สถานะ</label>
+                        <select name="status">
+                            <option value="pending">รอดำเนินการ</option>
+                            <option value="doing">กำลังทำ</option>
+                            <option value="done">เสร็จสิ้น</option>
+                        </select>
+                    </div>
+    
+                    <div class="form-group">
+                        <label>ความสำคัญ</label>
+                        <select name="priority">
+                            <option value="low">ต่ำ</option>
+                            <option value="medium" selected>ปานกลาง</option>
+                            <option value="high">สูง</option>
+                            <option value="urgent">ด่วนมาก</option>
+                        </select>
+                    </div>
+                </div>
+    
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>กำหนดเวลา</label>
+                        <input type="date" id="taskDueDate" name="dueDate" required>
+                    </div>
+    
+                    <div class="form-group">
+                        <label>หมวดหมู่</label>
+                        <select id="taskCategory" name="categoryId">
+                            <option value="">เลือกหมวดหมู่</option>
+                        </select>
+                    </div>
+                </div>
+    
+                <div class="form-group">
+                    <label>แท็กผู้เกี่ยวข้อง</label>
+                    <div id="member-list-tags" class="tag-selection-area"></div>
+                </div>
+    
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" onclick="closeTaskModal()">ยกเลิก</button>
+                    <button type="submit" class="btn-submit">เพิ่มงาน</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/task-modal.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+
+</html>

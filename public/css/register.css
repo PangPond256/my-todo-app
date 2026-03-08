@@ -1,0 +1,110 @@
+body{
+    background-color: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+}
+* {
+    font-family: 'Sarabun', sans-serif;
+    box-sizing: border-box;
+}
+.herder{
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 0;
+}
+.logo{
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 20px;
+}
+.top{
+    text-align: center;
+    margin-bottom: 10px;
+}
+.top h1{
+    margin: 5px 0;
+    color: #6e3aff;
+    font-size: 28px;
+}
+.top p{
+    color: black;
+}
+.register{
+    background-color: white;
+    width: 90%;
+    max-width: 450px;
+    padding: 35px;
+    border-radius: 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    margin-top: 10px;
+
+}
+.name,.email-register,.password-register,.confirm-password{
+    position: relative;
+    margin-bottom: 20px;
+}
+.material-symbols-outlined{
+    position: absolute;
+    left: 15px;
+    top: calc(50% + 15px);
+    transform: translateY(-50%);
+    font-size: 22px;
+    color: #94a3b8;
+    pointer-events: none;
+}
+input{
+    width: 100%;
+    padding: 14px 15px 14px 45px;
+    background-color: #f1f5f9;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    box-sizing: border-box;
+    outline: none;
+    transition: 0.3s;
+    margin-top: 8px;
+}
+input:focus{
+    border-color: #6e3aff;
+    background-color: white;
+}
+.register-btn{
+    width: 100%;
+    padding: 15px;
+    background: linear-gradient(90deg,#6e3aff,#a639ff);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 5px 15px rgba(110,58,255,0.3);
+    margin-top: 30px;
+}
+.footer-text{
+    text-align: center;
+    font-size: 14px;
+    color: #1e293b;
+    margin-top: 25px;
+}
+.footer-text{
+    color: #6e3aff;
+    text-decoration: none;
+    font-weight: bold;
+}
+.register-btn .material-symbols-outlined{
+    position: static;
+    transform: none;
+    margin: 0;
+    font-size: 20px;
+    color: white;
+}
+

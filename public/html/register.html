@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Page</title>
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="/css/register.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800&display=swap"
+        rel="stylesheet">
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/logo_todo.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/logo_todo.png">
+</head>
+<body>
+    <div class="header">
+        <img src="/images/logo_todo.png" alt="logo" class="logo">
+    </div>
+    <div class="top">
+        <h1>Todo Manager</h1>
+        <p>ส้รางบัญชีเพื่อเริ่มต้นจัดการงาน</p>
+    </div>
+    <div class="register">
+        <h3>Register</h3>
+        <p>สร้างบัญชีใหม่ของคุณ</p>
+        <form id="registerForm">
+            <div class="name">
+                <label>Firstname-lastname</label>
+                <span class="material-symbols-outlined">person</span>
+                <input type="text" name="name" placeholder="Ex. John example">
+                
+            </div>
+            <div class="email-register">
+                <label>Email</label>
+                <span class="material-symbols-outlined">mail</span>
+                <input type="email" name="email" placeholder="example@gmail.com">
+            </div>
+            <div class="password-register">
+                <label>Password</label>
+                <span class="material-symbols-outlined">lock</span>
+                <input type="password" name="password" placeholder="Password">
+                
+            </div>
+            <div class="confirm-password">
+                <label>Confirm Password</label>
+                <span class="material-symbols-outlined">lock</span>
+                <input type="password" name="confirmpassword" placeholder="Confirm Password" required>
+            </div>
+            <button type="submit" class="register-btn"><span class="material-symbols-outlined">account_box
+            </span>Regiter</button>
+            <p class="footer-text">มีบัญชีอยู่แล้ว <a href="/login">Click here</a></p>
+        </form>
+    </div>
+    <script src="/js/register.js"></script>
+</body>
+</html>

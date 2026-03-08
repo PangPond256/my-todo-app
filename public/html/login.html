@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>login Page</title>
+    <link rel="stylesheet" href="/css/login.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800&display=swap"
+        rel="stylesheet">
+        <link rel="icon" type="image/png" sizes="32x32" href="/images/logo_todo.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/images/logo_todo.png">
+</head>
+
+<body>
+    <div class="logos">
+        <img src="/images/logo_todo.png" alt="logo" class="logo">
+    </div>
+    <div class="container">
+        <h1>Todo Manager</h1>
+        <p>เข้าสู่ระบบเพื่อจัดการงานของคุณ</p>
+    </div>
+    <div class="login">
+        <h3>Login</h3>
+        <p>Welcome come back</p>
+        <form id="loginForm">
+            <div class="input_username">
+                <label>Email</label>
+                <div class="username">
+                    <span class="material-icons">email</span>
+                    <input type="email" name="Email" placeholder="Enter Your Email" required>
+                </div>
+            </div>
+            <div class="input_password">
+                <div class="password">
+                    <span class="material-icons">lock</span>
+                    <input type="password" name="Password" placeholder="Enter Your Password" required>
+                </div>
+            </div>
+            <button type="submit" class="login-btn"><span class="material-icons">login</span>Sign In</button>
+        </form>
+        <div>
+            <p class="footer-text">ยังไม่มีบัญชี? <a href="/register">สมัครสมาชิก</a></p>
+        </div>
+        <script src="/js/login.js"></script>
+</body>
+
+</html>
