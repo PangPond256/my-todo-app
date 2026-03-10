@@ -35,10 +35,8 @@ function getMode(req) {
         : 'real';
 }
 
-/* =========================
-   Schemas
-========================= */
 
+// Schemas
 const userSchema = new mongoose.Schema(
     {
         mode: {
@@ -114,7 +112,7 @@ const workspaceMemberSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-// IMPORTANT: unique แบบใหม่ต้องอิง mode ด้วย
+
 userSchema.index({ mode: 1, email: 1 }, { unique: true });
 categorySchema.index({ mode: 1, name: 1 }, { unique: true });
 workspaceMemberSchema.index({ mode: 1, ownerEmail: 1, memberEmail: 1 }, { unique: true });
@@ -124,9 +122,9 @@ const Category = mongoose.model('Category', categorySchema);
 const Task = mongoose.model('Task', taskSchema);
 const WorkspaceMember = mongoose.model('WorkspaceMember', workspaceMemberSchema);
 
-/* =========================
-   Index Fix
-========================= */
+
+// Index Fix
+
 
 async function dropLegacyIndexes() {
     try {
@@ -163,9 +161,9 @@ async function dropLegacyIndexes() {
     console.log('✅ Indexes synced');
 }
 
-/* =========================
-   Demo Seed
-========================= */
+
+// Demo Seed
+
 
 async function seedDemoData() {
     const mode = 'demo';
@@ -314,9 +312,7 @@ async function seedDemoData() {
     ]);
 }
 
-/* =========================
-   DB
-========================= */
+// DB
 
 mongoose.connect(MONGODB_URI)
     .then(async () => {
@@ -327,9 +323,7 @@ mongoose.connect(MONGODB_URI)
     })
     .catch((err) => console.error('❌ MongoDB error:', err));
 
-/* =========================
-   Page Routes
-========================= */
+// Page Routes
 
 app.get('/', (req, res) => {
     res.redirect('/demo');
@@ -363,9 +357,7 @@ app.get('/categories-page', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'html', 'category.html'));
 });
 
-/* =========================
-   Auth Routes (REAL ONLY)
-========================= */
+// Auth Routes (REAL ONLY)
 
 app.post('/api/register', async (req, res) => {
     try {
@@ -482,9 +474,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-/* =========================
-   Users
-========================= */
+// User
 
 app.get('/api/users/all', async (req, res) => {
     try {
@@ -534,9 +524,7 @@ app.get('/api/users/check', async (req, res) => {
     }
 });
 
-/* =========================
-   Workspace Members
-========================= */
+// Workspace Members
 
 app.get('/api/workspace-members', async (req, res) => {
     try {
@@ -773,9 +761,7 @@ app.delete('/api/workspace-members', async (req, res) => {
     }
 });
 
-/* =========================
-   Categories
-========================= */
+// Categories
 
 app.get('/api/categories/all', async (req, res) => {
     try {
@@ -893,9 +879,7 @@ app.delete('/api/categories/:id', async (req, res) => {
     }
 });
 
-/* =========================
-   Tasks
-========================= */
+// Tasks
 
 app.post('/api/tasks', async (req, res) => {
     try {
@@ -1157,9 +1141,7 @@ app.patch('/api/tasks/:id/status', async (req, res) => {
     }
 });
 
-/* =========================
-   API fallback
-========================= */
+// API fallback
 
 app.use('/api', (req, res) => {
     return res.status(404).json({
