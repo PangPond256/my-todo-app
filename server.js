@@ -1,4 +1,3 @@
-// Import modules
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -6,20 +5,13 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-// Config
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
-// Middleware
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Database connection
-mongoose.connect(MONGODB_URI)
-    .then(() => console.log('✅ MongoDB connected'))
-    .catch((err) => console.error('❌ MongoDB error:', err));
-
-// Helper functions
 function normalizeEmail(email) {
     return String(email || '').trim().toLowerCase();
 }
@@ -37,11 +29,26 @@ function endOfFutureDays(days = 7) {
     return d;
 }
 
-// Mongoose Schemas
+function getMode(req) {
+    return req.headers['x-demo-mode'] === 'true' || req.query.mode === 'demo'
+        ? 'demo'
+        : 'real';
+}
+
+/* =========================
+   Schemas
+========================= */
+
 const userSchema = new mongoose.Schema(
     {
+        mode: {
+            type: String,
+            enum: ['real', 'demo'],
+            default: 'real',
+            index: true
+        },
         name: { type: String, required: true, trim: true },
-        email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+        email: { type: String, required: true, trim: true, lowercase: true },
         password: { type: String, required: true },
         color: { type: String, default: 'bg-blue' }
     },
@@ -50,7 +57,13 @@ const userSchema = new mongoose.Schema(
 
 const categorySchema = new mongoose.Schema(
     {
-        name: { type: String, required: true, unique: true, trim: true },
+        mode: {
+            type: String,
+            enum: ['real', 'demo'],
+            default: 'real',
+            index: true
+        },
+        name: { type: String, required: true, trim: true },
         color: { type: String, default: 'bg-blue' },
         icon: { type: String, default: 'folder' }
     },
@@ -59,6 +72,12 @@ const categorySchema = new mongoose.Schema(
 
 const taskSchema = new mongoose.Schema(
     {
+        mode: {
+            type: String,
+            enum: ['real', 'demo'],
+            default: 'real',
+            index: true
+        },
         userEmail: { type: String, required: true, index: true, trim: true, lowercase: true },
         title: { type: String, required: true, trim: true },
         description: { type: String, default: '' },
@@ -82,6 +101,12 @@ const taskSchema = new mongoose.Schema(
 
 const workspaceMemberSchema = new mongoose.Schema(
     {
+        mode: {
+            type: String,
+            enum: ['real', 'demo'],
+            default: 'real',
+            index: true
+        },
         ownerEmail: { type: String, required: true, trim: true, lowercase: true, index: true },
         memberEmail: { type: String, required: true, trim: true, lowercase: true, index: true },
         color: { type: String, default: 'bg-blue' }
@@ -89,16 +114,229 @@ const workspaceMemberSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-workspaceMemberSchema.index({ ownerEmail: 1, memberEmail: 1 }, { unique: true });
+// IMPORTANT: unique แบบใหม่ต้องอิง mode ด้วย
+userSchema.index({ mode: 1, email: 1 }, { unique: true });
+categorySchema.index({ mode: 1, name: 1 }, { unique: true });
+workspaceMemberSchema.index({ mode: 1, ownerEmail: 1, memberEmail: 1 }, { unique: true });
 
 const User = mongoose.model('User', userSchema);
 const Category = mongoose.model('Category', categorySchema);
 const Task = mongoose.model('Task', taskSchema);
 const WorkspaceMember = mongoose.model('WorkspaceMember', workspaceMemberSchema);
 
-// Page Routes
+/* =========================
+   Index Fix
+========================= */
+
+async function dropLegacyIndexes() {
+    try {
+        const userIndexes = await User.collection.indexes();
+        const hasOldEmailIndex = userIndexes.some((idx) => idx.name === 'email_1');
+        if (hasOldEmailIndex) {
+            await User.collection.dropIndex('email_1');
+            console.log('🧹 Dropped legacy users index: email_1');
+        }
+    } catch (error) {
+        if (!String(error.message || '').includes('index not found')) {
+            console.warn('⚠️ Could not drop legacy users index:', error.message);
+        }
+    }
+
+    try {
+        const categoryIndexes = await Category.collection.indexes();
+        const hasOldNameIndex = categoryIndexes.some((idx) => idx.name === 'name_1');
+        if (hasOldNameIndex) {
+            await Category.collection.dropIndex('name_1');
+            console.log('🧹 Dropped legacy categories index: name_1');
+        }
+    } catch (error) {
+        if (!String(error.message || '').includes('index not found')) {
+            console.warn('⚠️ Could not drop legacy categories index:', error.message);
+        }
+    }
+
+    await User.syncIndexes();
+    await Category.syncIndexes();
+    await WorkspaceMember.syncIndexes();
+    await Task.syncIndexes();
+
+    console.log('✅ Indexes synced');
+}
+
+/* =========================
+   Demo Seed
+========================= */
+
+async function seedDemoData() {
+    const mode = 'demo';
+    const ownerEmail = 'demo@todoapp.com';
+
+    await User.updateOne(
+        { mode, email: ownerEmail },
+        {
+            $setOnInsert: {
+                mode,
+                name: 'Demo User',
+                email: ownerEmail,
+                password: 'demo123456',
+                color: 'bg-blue'
+            }
+        },
+        { upsert: true }
+    );
+
+    const demoUsers = [
+        { name: 'Patcharapron', email: 'test@gmail.com', color: 'bg-pink' },
+        { name: 'Thanakorn Ritsub', email: 'pangpond1@gmail.com', color: 'bg-blue' }
+    ];
+
+    for (const user of demoUsers) {
+        await User.updateOne(
+            { mode, email: normalizeEmail(user.email) },
+            {
+                $setOnInsert: {
+                    mode,
+                    name: user.name,
+                    email: normalizeEmail(user.email),
+                    password: 'demo123456',
+                    color: user.color
+                }
+            },
+            { upsert: true }
+        );
+    }
+
+    const categories = [
+        { name: 'Work', color: 'bg-pink', icon: 'work' },
+        { name: 'Meeting', color: 'bg-red', icon: 'group' },
+        { name: 'solo', color: 'bg-blue', icon: 'person' }
+    ];
+
+    for (const category of categories) {
+        await Category.updateOne(
+            { mode, name: category.name },
+            {
+                $setOnInsert: {
+                    mode,
+                    name: category.name,
+                    color: category.color,
+                    icon: category.icon
+                }
+            },
+            { upsert: true }
+        );
+    }
+
+    const demoRelations = [
+        { ownerEmail, memberEmail: ownerEmail, color: 'bg-blue' },
+        { ownerEmail, memberEmail: 'test@gmail.com', color: 'bg-pink' },
+        { ownerEmail, memberEmail: 'pangpond1@gmail.com', color: 'bg-blue' }
+    ];
+
+    for (const relation of demoRelations) {
+        await WorkspaceMember.updateOne(
+            {
+                mode,
+                ownerEmail: normalizeEmail(relation.ownerEmail),
+                memberEmail: normalizeEmail(relation.memberEmail)
+            },
+            {
+                $setOnInsert: {
+                    mode,
+                    ownerEmail: normalizeEmail(relation.ownerEmail),
+                    memberEmail: normalizeEmail(relation.memberEmail),
+                    color: relation.color
+                }
+            },
+            { upsert: true }
+        );
+    }
+
+    const taskCount = await Task.countDocuments({ mode, userEmail: ownerEmail });
+    if (taskCount > 0) return;
+
+    await Task.insertMany([
+        {
+            mode,
+            userEmail: ownerEmail,
+            title: 'ประชุม',
+            description: 'เวลา 10.00',
+            status: 'pending',
+            priority: 'medium',
+            dueDate: new Date('2026-03-10'),
+            taggedUsers: ['test@gmail.com'],
+            categoryName: 'Meeting'
+        },
+        {
+            mode,
+            userEmail: ownerEmail,
+            title: 'แก้ไขงาน',
+            description: 'ปรับแต่งโครงสร้าง',
+            status: 'doing',
+            priority: 'medium',
+            dueDate: new Date('2026-03-07'),
+            taggedUsers: ['test@gmail.com'],
+            categoryName: 'Work'
+        },
+        {
+            mode,
+            userEmail: ownerEmail,
+            title: 'Dev',
+            description: 'ออกแบบทดสอบ',
+            status: 'doing',
+            priority: 'low',
+            dueDate: new Date('2026-03-08'),
+            taggedUsers: ['test@gmail.com'],
+            categoryName: 'Work'
+        },
+        {
+            mode,
+            userEmail: ownerEmail,
+            title: 'UI',
+            description: 'ตกแต่งหน้าต่างเว็บ',
+            status: 'pending',
+            priority: 'high',
+            dueDate: new Date('2026-03-08'),
+            taggedUsers: ['test@gmail.com'],
+            categoryName: 'Work'
+        },
+        {
+            mode,
+            userEmail: ownerEmail,
+            title: 'ประชุม',
+            description: '21.00',
+            status: 'done',
+            priority: 'urgent',
+            dueDate: new Date('2026-03-09'),
+            taggedUsers: ['pangpond1@gmail.com'],
+            categoryName: 'Meeting'
+        }
+    ]);
+}
+
+/* =========================
+   DB
+========================= */
+
+mongoose.connect(MONGODB_URI)
+    .then(async () => {
+        console.log('✅ MongoDB connected');
+        await dropLegacyIndexes();
+        await seedDemoData();
+        console.log('✅ Demo data ready');
+    })
+    .catch((err) => console.error('❌ MongoDB error:', err));
+
+/* =========================
+   Page Routes
+========================= */
+
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'html', 'login.html'));
+    res.redirect('/demo');
+});
+
+app.get('/demo', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'html', 'dashboard.html'));
 });
 
 app.get('/login', (req, res) => {
@@ -125,10 +363,14 @@ app.get('/categories-page', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'html', 'category.html'));
 });
 
-// Auth routes
+/* =========================
+   Auth Routes (REAL ONLY)
+========================= */
+
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
+        const mode = 'real';
 
         if (!name || !email || !password) {
             return res.status(400).json({
@@ -138,7 +380,7 @@ app.post('/api/register', async (req, res) => {
         }
 
         const normalizedEmail = normalizeEmail(email);
-        const existingUser = await User.findOne({ email: normalizedEmail });
+        const existingUser = await User.findOne({ mode, email: normalizedEmail });
 
         if (existingUser) {
             return res.status(409).json({
@@ -148,6 +390,7 @@ app.post('/api/register', async (req, res) => {
         }
 
         const newUser = new User({
+            mode,
             name: String(name).trim(),
             email: normalizedEmail,
             password: String(password),
@@ -157,9 +400,10 @@ app.post('/api/register', async (req, res) => {
         await newUser.save();
 
         await WorkspaceMember.updateOne(
-            { ownerEmail: normalizedEmail, memberEmail: normalizedEmail },
+            { mode, ownerEmail: normalizedEmail, memberEmail: normalizedEmail },
             {
                 $setOnInsert: {
+                    mode,
                     ownerEmail: normalizedEmail,
                     memberEmail: normalizedEmail,
                     color: 'bg-blue'
@@ -185,6 +429,7 @@ app.post('/api/login', async (req, res) => {
     try {
         const Email = req.body.Email || req.body.email;
         const Password = req.body.Password || req.body.password;
+        const mode = 'real';
 
         if (!Email || !Password) {
             return res.status(400).json({
@@ -195,6 +440,7 @@ app.post('/api/login', async (req, res) => {
 
         const normalizedEmail = normalizeEmail(Email);
         const user = await User.findOne({
+            mode,
             email: normalizedEmail,
             password: String(Password)
         });
@@ -207,9 +453,10 @@ app.post('/api/login', async (req, res) => {
         }
 
         await WorkspaceMember.updateOne(
-            { ownerEmail: normalizedEmail, memberEmail: normalizedEmail },
+            { mode, ownerEmail: normalizedEmail, memberEmail: normalizedEmail },
             {
                 $setOnInsert: {
+                    mode,
                     ownerEmail: normalizedEmail,
                     memberEmail: normalizedEmail,
                     color: 'bg-blue'
@@ -235,10 +482,14 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// User routes
+/* =========================
+   Users
+========================= */
+
 app.get('/api/users/all', async (req, res) => {
     try {
-        const users = await User.find({}, 'name email color').sort({ createdAt: -1 });
+        const mode = getMode(req);
+        const users = await User.find({ mode }, 'name email color').sort({ createdAt: -1 });
         return res.json(users);
     } catch (error) {
         console.error('Users error:', error);
@@ -249,6 +500,7 @@ app.get('/api/users/all', async (req, res) => {
 app.get('/api/users/check', async (req, res) => {
     try {
         const { email } = req.query;
+        const mode = getMode(req);
 
         if (!email) {
             return res.status(400).json({
@@ -258,8 +510,8 @@ app.get('/api/users/check', async (req, res) => {
         }
 
         const user = await User.findOne(
-            { email: normalizeEmail(email) },
-            'name email'
+            { mode, email: normalizeEmail(email) },
+            'name email color'
         );
 
         if (!user) {
@@ -282,10 +534,14 @@ app.get('/api/users/check', async (req, res) => {
     }
 });
 
-// Workspace member routes
+/* =========================
+   Workspace Members
+========================= */
+
 app.get('/api/workspace-members', async (req, res) => {
     try {
         const ownerEmail = normalizeEmail(req.query.ownerEmail);
+        const mode = getMode(req);
 
         if (!ownerEmail) {
             return res.status(400).json({
@@ -295,25 +551,25 @@ app.get('/api/workspace-members', async (req, res) => {
             });
         }
 
-        const relations = await WorkspaceMember.find({ ownerEmail }).sort({ createdAt: 1 });
-        const memberEmails = relations.map(item => item.memberEmail);
+        const relations = await WorkspaceMember.find({ mode, ownerEmail }).sort({ createdAt: 1 });
+        const memberEmails = relations.map((item) => item.memberEmail);
 
         const users = await User.find(
-            { email: { $in: memberEmails } },
-            'name email'
+            { mode, email: { $in: memberEmails } },
+            'name email color'
         );
 
-        const userMap = new Map(users.map(user => [user.email, user]));
+        const userMap = new Map(users.map((user) => [user.email, user]));
 
         const members = relations
-            .map(rel => {
+            .map((rel) => {
                 const user = userMap.get(rel.memberEmail);
                 if (!user) return null;
 
                 return {
                     name: user.name,
                     email: user.email,
-                    color: rel.color || 'bg-blue'
+                    color: rel.color || user.color || 'bg-blue'
                 };
             })
             .filter(Boolean);
@@ -334,7 +590,8 @@ app.get('/api/workspace-members', async (req, res) => {
 
 app.post('/api/workspace-members', async (req, res) => {
     try {
-        const { ownerEmail, email, color } = req.body;
+        const { ownerEmail, email, color, name } = req.body;
+        const mode = getMode(req);
 
         const normalizedOwner = normalizeEmail(ownerEmail);
         const normalizedMember = normalizeEmail(email);
@@ -347,24 +604,45 @@ app.post('/api/workspace-members', async (req, res) => {
             });
         }
 
-        const ownerUser = await User.findOne({ email: normalizedOwner }, 'name email');
-        const memberUser = await User.findOne({ email: normalizedMember }, 'name email');
+        let ownerUser = await User.findOne({ mode, email: normalizedOwner }, 'name email color');
+        let memberUser = await User.findOne({ mode, email: normalizedMember }, 'name email color');
 
         if (!ownerUser) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบเจ้าของทีมในระบบ'
-            });
+            if (mode === 'demo') {
+                ownerUser = await User.create({
+                    mode,
+                    name: 'Demo Owner',
+                    email: normalizedOwner,
+                    password: 'demo123456',
+                    color: 'bg-blue'
+                });
+            } else {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบเจ้าของทีมในระบบ'
+                });
+            }
         }
 
         if (!memberUser) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบผู้ใช้นี้ในระบบ กรุณาให้เขาสมัครก่อน'
-            });
+            if (mode === 'demo') {
+                memberUser = await User.create({
+                    mode,
+                    name: String(name || normalizedMember.split('@')[0] || 'Demo Member').trim(),
+                    email: normalizedMember,
+                    password: 'demo123456',
+                    color: selectedColor
+                });
+            } else {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบผู้ใช้นี้ในระบบ กรุณาให้เขาสมัครก่อน'
+                });
+            }
         }
 
         const exists = await WorkspaceMember.findOne({
+            mode,
             ownerEmail: normalizedOwner,
             memberEmail: normalizedMember
         });
@@ -377,41 +655,24 @@ app.post('/api/workspace-members', async (req, res) => {
         }
 
         await WorkspaceMember.updateOne(
-            { ownerEmail: normalizedOwner, memberEmail: normalizedOwner },
+            { mode, ownerEmail: normalizedOwner, memberEmail: normalizedOwner },
             {
                 $setOnInsert: {
+                    mode,
                     ownerEmail: normalizedOwner,
                     memberEmail: normalizedOwner,
-                    color: 'bg-blue'
+                    color: ownerUser.color || 'bg-blue'
                 }
             },
             { upsert: true }
         );
 
-        await WorkspaceMember.updateOne(
-            { ownerEmail: normalizedMember, memberEmail: normalizedMember },
-            {
-                $setOnInsert: {
-                    ownerEmail: normalizedMember,
-                    memberEmail: normalizedMember,
-                    color: 'bg-blue'
-                }
-            },
-            { upsert: true }
-        );
-
-        await WorkspaceMember.create([
-            {
-                ownerEmail: normalizedOwner,
-                memberEmail: normalizedMember,
-                color: selectedColor
-            },
-            {
-                ownerEmail: normalizedMember,
-                memberEmail: normalizedOwner,
-                color: selectedColor
-            }
-        ]);
+        await WorkspaceMember.create({
+            mode,
+            ownerEmail: normalizedOwner,
+            memberEmail: normalizedMember,
+            color: selectedColor
+        });
 
         return res.json({
             success: true,
@@ -433,6 +694,7 @@ app.post('/api/workspace-members', async (req, res) => {
 app.patch('/api/workspace-members/color', async (req, res) => {
     try {
         const { ownerEmail, memberEmail, color } = req.body;
+        const mode = getMode(req);
 
         const normalizedOwner = normalizeEmail(ownerEmail);
         const normalizedMember = normalizeEmail(memberEmail);
@@ -445,7 +707,7 @@ app.patch('/api/workspace-members/color', async (req, res) => {
         }
 
         const updated = await WorkspaceMember.findOneAndUpdate(
-            { ownerEmail: normalizedOwner, memberEmail: normalizedMember },
+            { mode, ownerEmail: normalizedOwner, memberEmail: normalizedMember },
             { color },
             { new: true }
         );
@@ -473,6 +735,7 @@ app.patch('/api/workspace-members/color', async (req, res) => {
 app.delete('/api/workspace-members', async (req, res) => {
     try {
         const { ownerEmail, memberEmail } = req.body;
+        const mode = getMode(req);
 
         const normalizedOwner = normalizeEmail(ownerEmail);
         const normalizedMember = normalizeEmail(memberEmail);
@@ -492,10 +755,9 @@ app.delete('/api/workspace-members', async (req, res) => {
         }
 
         await WorkspaceMember.deleteMany({
-            $or: [
-                { ownerEmail: normalizedOwner, memberEmail: normalizedMember },
-                { ownerEmail: normalizedMember, memberEmail: normalizedOwner }
-            ]
+            mode,
+            ownerEmail: normalizedOwner,
+            memberEmail: normalizedMember
         });
 
         return res.json({
@@ -511,10 +773,14 @@ app.delete('/api/workspace-members', async (req, res) => {
     }
 });
 
-// Category routes
+/* =========================
+   Categories
+========================= */
+
 app.get('/api/categories/all', async (req, res) => {
     try {
-        const categories = await Category.find().sort({ createdAt: -1 });
+        const mode = getMode(req);
+        const categories = await Category.find({ mode }).sort({ createdAt: -1 });
         return res.json(categories);
     } catch (error) {
         console.error('Get categories error:', error);
@@ -525,6 +791,7 @@ app.get('/api/categories/all', async (req, res) => {
 app.post('/api/categories', async (req, res) => {
     try {
         const { name, color, icon } = req.body;
+        const mode = getMode(req);
 
         if (!name) {
             return res.status(400).json({
@@ -533,7 +800,7 @@ app.post('/api/categories', async (req, res) => {
             });
         }
 
-        const exists = await Category.findOne({ name: String(name).trim() });
+        const exists = await Category.findOne({ mode, name: String(name).trim() });
         if (exists) {
             return res.status(409).json({
                 success: false,
@@ -542,6 +809,7 @@ app.post('/api/categories', async (req, res) => {
         }
 
         const category = new Category({
+            mode,
             name: String(name).trim(),
             color: color || 'bg-blue',
             icon: icon || 'folder'
@@ -566,9 +834,10 @@ app.put('/api/categories/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { name, color, icon } = req.body;
+        const mode = getMode(req);
 
-        const updated = await Category.findByIdAndUpdate(
-            id,
+        const updated = await Category.findOneAndUpdate(
+            { _id: id, mode },
             {
                 ...(name ? { name: String(name).trim() } : {}),
                 ...(color ? { color } : {}),
@@ -600,8 +869,9 @@ app.put('/api/categories/:id', async (req, res) => {
 app.delete('/api/categories/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const mode = getMode(req);
 
-        const deleted = await Category.findByIdAndDelete(id);
+        const deleted = await Category.findOneAndDelete({ _id: id, mode });
 
         if (!deleted) {
             return res.status(404).json({
@@ -623,7 +893,10 @@ app.delete('/api/categories/:id', async (req, res) => {
     }
 });
 
-// Task routes
+/* =========================
+   Tasks
+========================= */
+
 app.post('/api/tasks', async (req, res) => {
     try {
         const {
@@ -638,6 +911,8 @@ app.post('/api/tasks', async (req, res) => {
             categoryName
         } = req.body;
 
+        const mode = getMode(req);
+
         if (!userEmail || !title || !dueDate) {
             return res.status(400).json({
                 success: false,
@@ -646,6 +921,7 @@ app.post('/api/tasks', async (req, res) => {
         }
 
         const task = new Task({
+            mode,
             userEmail: normalizeEmail(userEmail),
             title: String(title).trim(),
             description: description || '',
@@ -677,6 +953,7 @@ app.post('/api/tasks', async (req, res) => {
 app.get('/api/tasks', async (req, res) => {
     try {
         const { email } = req.query;
+        const mode = getMode(req);
 
         if (!email) {
             return res.status(400).json({
@@ -689,6 +966,7 @@ app.get('/api/tasks', async (req, res) => {
         const normalizedEmail = normalizeEmail(email);
 
         const tasks = await Task.find({
+            mode,
             $or: [
                 { userEmail: normalizedEmail },
                 { taggedUsers: normalizedEmail }
@@ -711,6 +989,7 @@ app.get('/api/tasks', async (req, res) => {
 app.get('/api/tasks/upcoming', async (req, res) => {
     try {
         const { email } = req.query;
+        const mode = getMode(req);
 
         if (!email) {
             return res.status(400).json({
@@ -724,6 +1003,7 @@ app.get('/api/tasks/upcoming', async (req, res) => {
         const upcomingEnd = endOfFutureDays(7);
 
         const tasks = await Task.find({
+            mode,
             $or: [
                 { userEmail: normalizedEmail },
                 { taggedUsers: normalizedEmail }
@@ -748,6 +1028,7 @@ app.get('/api/tasks/upcoming', async (req, res) => {
 app.get('/api/tasks/overdue', async (req, res) => {
     try {
         const { email } = req.query;
+        const mode = getMode(req);
 
         if (!email) {
             return res.status(400).json({
@@ -760,6 +1041,7 @@ app.get('/api/tasks/overdue', async (req, res) => {
         const today = startOfToday();
 
         const tasks = await Task.find({
+            mode,
             $or: [
                 { userEmail: normalizedEmail },
                 { taggedUsers: normalizedEmail }
@@ -784,6 +1066,7 @@ app.get('/api/tasks/overdue', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
     try {
         const { email } = req.query;
+        const mode = getMode(req);
 
         if (!email) {
             return res.status(400).json({
@@ -794,6 +1077,7 @@ app.get('/api/stats', async (req, res) => {
 
         const normalizedEmail = normalizeEmail(email);
         const query = {
+            mode,
             $or: [
                 { userEmail: normalizedEmail },
                 { taggedUsers: normalizedEmail }
@@ -823,7 +1107,8 @@ app.get('/api/stats', async (req, res) => {
 app.patch('/api/tasks/:id/status', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, requesterEmail } = req.body;
+        const { requesterEmail, status } = req.body;
+        const mode = getMode(req);
 
         if (!requesterEmail) {
             return res.status(400).json({
@@ -840,7 +1125,7 @@ app.patch('/api/tasks/:id/status', async (req, res) => {
         }
 
         const normalizedEmail = normalizeEmail(requesterEmail);
-        const task = await Task.findById(id);
+        const task = await Task.findOne({ _id: id, mode });
 
         if (!task) {
             return res.status(404).json({
@@ -872,120 +1157,10 @@ app.patch('/api/tasks/:id/status', async (req, res) => {
     }
 });
 
-app.put('/api/tasks/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const {
-            requesterEmail,
-            title,
-            description,
-            status,
-            priority,
-            dueDate,
-            taggedUsers,
-            categoryId,
-            categoryName
-        } = req.body;
+/* =========================
+   API fallback
+========================= */
 
-        if (!requesterEmail) {
-            return res.status(400).json({
-                success: false,
-                message: 'ไม่พบผู้ใช้งาน'
-            });
-        }
-
-        const normalizedEmail = normalizeEmail(requesterEmail);
-        const task = await Task.findById(id);
-
-        if (!task) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบงาน'
-            });
-        }
-
-        if (task.userEmail !== normalizedEmail) {
-            return res.status(403).json({
-                success: false,
-                message: 'เฉพาะเจ้าของงานเท่านั้นที่แก้ไขงานได้'
-            });
-        }
-
-        if (title !== undefined) task.title = String(title).trim();
-        if (description !== undefined) task.description = description;
-        if (status !== undefined && ['pending', 'doing', 'done'].includes(status)) {
-            task.status = status;
-        }
-        if (priority !== undefined && ['low', 'medium', 'high', 'urgent'].includes(priority)) {
-            task.priority = priority;
-        }
-        if (dueDate !== undefined) task.dueDate = new Date(dueDate);
-        if (taggedUsers !== undefined && Array.isArray(taggedUsers)) {
-            task.taggedUsers = taggedUsers.map((u) => normalizeEmail(u));
-        }
-        if (categoryId !== undefined) task.categoryId = categoryId || null;
-        if (categoryName !== undefined) task.categoryName = categoryName || '';
-
-        await task.save();
-
-        return res.json({
-            success: true,
-            task
-        });
-    } catch (error) {
-        console.error('Update task error:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'แก้ไขงานไม่สำเร็จ'
-        });
-    }
-});
-
-app.delete('/api/tasks/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { requesterEmail } = req.body;
-
-        if (!requesterEmail) {
-            return res.status(400).json({
-                success: false,
-                message: 'ไม่พบผู้ใช้งาน'
-            });
-        }
-
-        const normalizedEmail = normalizeEmail(requesterEmail);
-        const task = await Task.findById(id);
-
-        if (!task) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบงาน'
-            });
-        }
-
-        if (task.userEmail !== normalizedEmail) {
-            return res.status(403).json({
-                success: false,
-                message: 'เฉพาะเจ้าของงานเท่านั้นที่ลบงานได้'
-            });
-        }
-
-        await Task.findByIdAndDelete(id);
-
-        return res.json({
-            success: true,
-            message: 'ลบงานสำเร็จ'
-        });
-    } catch (error) {
-        console.error('Delete task error:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'ลบงานไม่สำเร็จ'
-        });
-    }
-});
-
-// API fallback
 app.use('/api', (req, res) => {
     return res.status(404).json({
         success: false,
@@ -993,7 +1168,10 @@ app.use('/api', (req, res) => {
     });
 });
 
+
 // Start server
+
+
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

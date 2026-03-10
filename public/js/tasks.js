@@ -4,23 +4,45 @@ let allCategories = [];
 let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const userData = localStorage.getItem('user');
+    currentUser =
+        window.reviewerMode?.getCurrentUser?.() ||
+        JSON.parse(localStorage.getItem('user') || 'null');
 
-    if (!userData) {
+    if (!currentUser) {
         window.location.href = '/login';
         return;
     }
 
-    currentUser = JSON.parse(userData);
     renderUserProfile(currentUser);
     bindFilterEvents();
+    bindAddButtonGuard();
 
-    await Promise.all([
-        loadUsers(),
-        loadCategories(),
-        loadTasks()
-    ]);
+    await initializePage();
 });
+
+async function initializePage() {
+    try {
+        await Promise.all([loadUsers(), loadCategories()]);
+        await loadTasks();
+    } catch (error) {
+        console.error('Initialize page error:', error);
+        allTasks = [];
+        updateResultCount(0, 0);
+        renderTasks([]);
+    }
+}
+
+function bindAddButtonGuard() {
+    const addButton = document.querySelector('.btn-add');
+    if (!addButton) return;
+
+    addButton.addEventListener('click', (e) => {
+        if (window.reviewerMode?.isReviewerMode?.()) {
+            e.preventDefault();
+            alert('Reviewer demo เป็นโหมดดูอย่างเดียว');
+        }
+    });
+}
 
 function renderUserProfile(user) {
     const nameEl = document.querySelector('.user-name');
@@ -42,7 +64,7 @@ function renderUserProfile(user) {
 function bindFilterEvents() {
     const ids = ['searchInput', 'statusFilter', 'priorityFilter', 'categoryFilter', 'ownerFilter'];
 
-    ids.forEach(id => {
+    ids.forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
 
@@ -51,9 +73,12 @@ function bindFilterEvents() {
     });
 }
 
-async function safeJsonFetch(url, fallback) {
+async function safeJsonFetch(url, fallback, options = {}) {
     try {
-        const res = await fetch(url);
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.(url, options)) ||
+            (await fetch(url, options));
+
         const contentType = res.headers.get('content-type') || '';
 
         if (!contentType.includes('application/json')) {
@@ -69,11 +94,16 @@ async function safeJsonFetch(url, fallback) {
 }
 
 async function loadUsers() {
-    allUsers = await safeJsonFetch('/api/users/all', []);
+    const users = await safeJsonFetch('/api/users/all', []);
+    allUsers = Array.isArray(users) ? users : [];
+
+    ensureCurrentUserInUsers();
+    ensureDemoUserInUsers();
 }
 
 async function loadCategories() {
-    allCategories = await safeJsonFetch('/api/categories/all', []);
+    const categories = await safeJsonFetch('/api/categories/all', []);
+    allCategories = Array.isArray(categories) ? categories : [];
     renderCategoryFilter();
 }
 
@@ -83,7 +113,7 @@ function renderCategoryFilter() {
 
     select.innerHTML = `<option value="">ทุกหมวดหมู่</option>`;
 
-    allCategories.forEach(cat => {
+    allCategories.forEach((cat) => {
         const option = document.createElement('option');
         option.value = cat.name;
         option.textContent = cat.name;
@@ -97,7 +127,9 @@ async function loadTasks() {
         { success: false, tasks: [] }
     );
 
-    allTasks = data.success ? data.tasks : [];
+    allTasks = data.success && Array.isArray(data.tasks) ? data.tasks : [];
+
+    hydrateUsersFromTasks(allTasks);
     applyFilters();
 }
 
@@ -111,32 +143,56 @@ function applyFilters() {
     let filtered = [...allTasks];
 
     if (search) {
-        filtered = filtered.filter(task => {
+        filtered = filtered.filter((task) => {
             const title = (task.title || '').toLowerCase();
             const desc = (task.description || '').toLowerCase();
             const cat = (task.categoryName || '').toLowerCase();
-            return title.includes(search) || desc.includes(search) || cat.includes(search);
+            const owner = getOwnerDisplay(task);
+            const tagged = getTaggedUsers(task.taggedUsers || []);
+
+            return (
+                title.includes(search) ||
+                desc.includes(search) ||
+                cat.includes(search) ||
+                (owner.name || '').toLowerCase().includes(search) ||
+                (owner.email || '').toLowerCase().includes(search) ||
+                tagged.some((user) => {
+                    return (
+                        (user.name || '').toLowerCase().includes(search) ||
+                        (user.email || '').toLowerCase().includes(search)
+                    );
+                })
+            );
         });
     }
 
     if (status) {
-        filtered = filtered.filter(task => task.status === status);
+        filtered = filtered.filter((task) => task.status === status);
     }
 
     if (priority) {
-        filtered = filtered.filter(task => task.priority === priority);
+        filtered = filtered.filter((task) => task.priority === priority);
     }
 
     if (category) {
-        filtered = filtered.filter(task => (task.categoryName || '') === category);
+        filtered = filtered.filter((task) => (task.categoryName || '') === category);
     }
 
     if (ownerType === 'mine') {
-        filtered = filtered.filter(task => task.userEmail === currentUser.email);
+        filtered = filtered.filter(
+            (task) => normalizeText(task.userEmail) === normalizeText(currentUser.email)
+        );
     }
 
     if (ownerType === 'tagged') {
-        filtered = filtered.filter(task => task.userEmail !== currentUser.email);
+        filtered = filtered.filter(
+            (task) =>
+                normalizeText(task.userEmail) !== normalizeText(currentUser.email) &&
+                Array.isArray(task.taggedUsers) &&
+                task.taggedUsers.some(
+                    (email) => normalizeText(email) === normalizeText(currentUser.email)
+                )
+        );
     }
 
     updateResultCount(filtered.length, allTasks.length);
@@ -157,175 +213,368 @@ function renderTasks(tasks) {
         grid.innerHTML = `
             <div class="empty-state">
                 <h3>ไม่พบงานที่ตรงกับเงื่อนไข</h3>
-                <p>ลองเปลี่ยนคำค้นหาหรือตัวกรองอีกครั้ง</p>
+                <p>ลองเปลี่ยนคำค้นหาหรือฟิลเตอร์ดูอีกครั้ง</p>
             </div>
         `;
         return;
     }
 
-    grid.innerHTML = tasks.map(task => createTaskCard(task)).join('');
-}
+    grid.innerHTML = tasks
+        .map((task) => {
+            const owner = getOwnerDisplay(task);
+            const taggedUsers = getTaggedUsers(task.taggedUsers || []);
+            const isOwner = normalizeText(task.userEmail) === normalizeText(currentUser.email);
+            const readOnly = window.reviewerMode?.isReviewerMode?.();
+            const overdue = isOverdue(task);
 
-function createTaskCard(task) {
-    const isOwner = task.userEmail === currentUser.email;
-    const overdue = isOverdue(task);
-    const priorityLabel = mapPriority(task.priority);
-    const statusLabel = mapStatus(task.status);
-    const categoryLabel = task.categoryName || 'ไม่มีหมวดหมู่';
-    const taggedUsers = getTaggedUsers(task.taggedUsers || []);
-    const owner = getUserByEmail(task.userEmail);
+            const priorityClass = `priority-${escapeHtml(task.priority || 'medium')}`;
+            const overdueClass = overdue ? 'overdue' : '';
 
-    return `
-        <article class="task-card priority-${task.priority || 'medium'} ${overdue ? 'overdue' : ''}">
-            <div class="task-inner">
-                <div class="task-top">
-                    <div class="task-title-block">
-                        <h3>${escapeHtml(task.title || '-')}</h3>
-                        <p class="task-desc">${escapeHtml(task.description || 'ไม่มีรายละเอียด')}</p>
-                    </div>
+            return `
+            <article class="task-card ${priorityClass} ${overdueClass}">
+                <div class="task-inner">
+                    <div class="task-top">
+                        <div class="task-title-block">
+                            <h3>${escapeHtml(task.title || '-')}</h3>
+                            <p class="task-desc">${escapeHtml(task.description || 'ไม่มีรายละเอียด')}</p>
+                        </div>
 
-                    <div class="task-actions">
-                        ${isOwner ? `
-                            <button class="icon-btn delete" onclick="deleteTask('${task._id}')">
-                                <span class="material-symbols-outlined">delete</span>
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-
-                <div class="badge-row">
-                    <span class="badge priority-${task.priority || 'medium'}">${priorityLabel}</span>
-                    <span class="badge status-${task.status || 'pending'}">${statusLabel}</span>
-                    <span class="badge category">${escapeHtml(categoryLabel)}</span>
-                </div>
-
-                <div class="tag-row">
-                    <span class="hash-tag">
-                        <span class="material-symbols-outlined" style="font-size:16px;">sell</span>
-                        #${escapeHtml(categoryLabel)}
-                    </span>
-                </div>
-
-                <div class="task-divider"></div>
-
-                <div class="task-footer">
-                    <div class="footer-left">
-                        <span class="meta-item ${overdue ? 'overdue-text' : ''}">
-                            <span class="material-symbols-outlined" style="font-size:18px;">calendar_today</span>
-                            ${overdue ? 'เกินกำหนด: ' : ''}${formatThaiDate(task.dueDate)}
-                        </span>
-
-                        <div class="avatar-stack">
-                            ${owner ? `
-                                <div class="avatar-mini ${owner.color || 'bg-blue'}" title="เจ้าของงาน: ${escapeHtml(owner.name)}">
-                                    ${getInitial(owner.name)}
-                                </div>
-                            ` : ''}
-
-                            ${taggedUsers.map(user => `
-                                <div class="avatar-mini ${user.color || 'bg-indigo'}" title="${escapeHtml(user.name)}">
-                                    ${getInitial(user.name)}
-                                </div>
-                            `).join('')}
+                        <div class="badge-row">
+                            <span class="badge ${priorityClass}">
+                                ${mapPriority(task.priority)}
+                            </span>
+                            <span class="badge category">
+                                ${escapeHtml(task.categoryName || 'ไม่ระบุหมวดหมู่')}
+                            </span>
                         </div>
                     </div>
 
-                    <div class="footer-right">
-                        ${isOwner ? `
-                            <select class="status-select" onchange="updateTaskStatus('${task._id}', this.value)">
+                    <div class="task-divider"></div>
+
+                    <div class="task-footer">
+                        <div class="footer-left">
+                            <div class="meta-row">
+                                <span class="meta-item ${overdue ? 'overdue-text' : ''}">
+                                    <span class="material-symbols-outlined">calendar_today</span>
+                                    ${formatThaiDate(task.dueDate)}
+                                </span>
+                            </div>
+
+                            <div class="task-people-block">
+                                <div class="task-person-row">
+                                    <span class="task-person-label">เจ้าของงาน</span>
+                                    <div class="task-person-chip">
+                                        <div class="task-person-avatar ${owner.color || 'bg-blue'}">
+                                            ${getInitial(owner.name || owner.email || 'U')}
+                                        </div>
+                                        <div class="task-person-info">
+                                            <strong>${escapeHtml(owner.name || owner.email || '-')}</strong>
+                                            <small>${escapeHtml(owner.email || '-')}</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                ${taggedUsers.length
+                    ? `
+                                    <div class="task-person-row">
+                                        <span class="task-person-label">ผู้เกี่ยวข้อง</span>
+                                        <div class="task-people-list">
+                                            ${taggedUsers
+                        .map(
+                            (user) => `
+                                                <div class="task-person-chip compact">
+                                                    <div class="task-person-avatar ${user.color || 'bg-blue'}">
+                                                        ${getInitial(user.name || user.email || 'U')}
+                                                    </div>
+                                                    <div class="task-person-info">
+                                                        <strong>${escapeHtml(user.name || user.email || '-')}</strong>
+                                                        <small>${escapeHtml(user.email || '-')}</small>
+                                                    </div>
+                                                </div>
+                                            `
+                        )
+                        .join('')}
+                                        </div>
+                                    </div>
+                                `
+                    : ''
+                }
+                            </div>
+                        </div>
+
+                        <div class="footer-right">
+                            ${!isOwner ? `<span class="owner-only">ดูได้อย่างเดียว</span>` : ''}
+
+                            <select
+                                class="status-select"
+                                ${!isOwner || readOnly ? 'disabled' : ''}
+                                onchange="updateTaskStatus('${escapeJs(task._id)}', this.value)"
+                            >
                                 <option value="pending" ${task.status === 'pending' ? 'selected' : ''}>รอดำเนินการ</option>
                                 <option value="doing" ${task.status === 'doing' ? 'selected' : ''}>กำลังทำ</option>
                                 <option value="done" ${task.status === 'done' ? 'selected' : ''}>เสร็จสิ้น</option>
                             </select>
-                        ` : `
-                            <span class="owner-only">เฉพาะเจ้าของงานแก้สถานะได้</span>
-                        `}
+                        </div>
                     </div>
                 </div>
-            </div>
-        </article>
-    `;
+            </article>
+        `;
+        })
+        .join('');
 }
 
-async function updateTaskStatus(taskId, newStatus) {
-    try {
-        const res = await fetch(`/api/tasks/${taskId}/status`, {
+async function updateTaskStatus(taskId, status) {
+    if (window.reviewerMode?.isReviewerMode?.()) {
+        alert('Reviewer demo เป็นโหมดดูอย่างเดียว');
+        await loadTasks();
+        return;
+    }
+
+    const response = await safeJsonFetch(
+        `/api/tasks/${taskId}/status`,
+        { success: false, message: 'เกิดข้อผิดพลาด' },
+        {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
-                status: newStatus,
-                requesterEmail: currentUser.email
+                requesterEmail: currentUser.email,
+                status
             })
-        });
-
-        const result = await res.json();
-
-        if (!result.success) {
-            alert(result.message || 'ไม่สามารถเปลี่ยนสถานะได้');
-            await loadTasks();
-            return;
         }
+    );
 
-        await loadTasks();
-    } catch (error) {
-        console.error('Update status error:', error);
-        alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ');
+    if (!response.success) {
+        alert(response.message || 'อัปเดตสถานะไม่สำเร็จ');
     }
+
+    await loadTasks();
 }
 
-async function deleteTask(taskId) {
-    const ok = confirm('ต้องการลบงานนี้ใช่หรือไม่?');
-    if (!ok) return;
+function getOwnerDisplay(task) {
+    const ownerEmail = task?.userEmail || '';
+    const foundUser = getUserByEmail(ownerEmail);
 
-    try {
-        const res = await fetch(`/api/tasks/${taskId}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                requesterEmail: currentUser.email
-            })
-        });
-
-        const result = await res.json();
-
-        if (!result.success) {
-            alert(result.message || 'ไม่สามารถลบงานได้');
-            return;
-        }
-
-        await loadTasks();
-    } catch (error) {
-        console.error('Delete task error:', error);
-        alert('เกิดข้อผิดพลาดในการลบงาน');
+    if (foundUser) {
+        return {
+            name: foundUser.name || ownerEmail,
+            email: foundUser.email || ownerEmail,
+            color: foundUser.color || 'bg-blue'
+        };
     }
+
+    const currentIsOwner =
+        normalizeText(ownerEmail) &&
+        normalizeText(ownerEmail) === normalizeText(currentUser?.email);
+
+    if (currentIsOwner) {
+        return {
+            name: currentUser?.name || ownerEmail,
+            email: currentUser?.email || ownerEmail,
+            color: currentUser?.color || 'bg-blue'
+        };
+    }
+
+    const demoUser = getKnownDemoUser();
+    const isDemoOwner =
+        normalizeText(ownerEmail) === normalizeText(demoUser.email);
+
+    if (isDemoOwner) {
+        return {
+            name: demoUser.name,
+            email: demoUser.email,
+            color: demoUser.color
+        };
+    }
+
+    const fallbackName =
+        task?.userName ||
+        task?.ownerName ||
+        task?.createdByName ||
+        task?.owner?.name ||
+        ownerEmail ||
+        '-';
+
+    const fallbackEmail =
+        task?.ownerEmail ||
+        task?.owner?.email ||
+        ownerEmail ||
+        '-';
+
+    const fallbackColor =
+        task?.ownerColor ||
+        task?.owner?.color ||
+        'bg-blue';
+
+    return {
+        name: fallbackName,
+        email: fallbackEmail,
+        color: fallbackColor
+    };
 }
 
 function getUserByEmail(email) {
-    return allUsers.find(user => user.email === email);
+    return allUsers.find((user) => normalizeText(user.email) === normalizeText(email));
 }
 
 function getTaggedUsers(taggedEmails) {
+    if (!Array.isArray(taggedEmails)) return [];
+
     return taggedEmails
-        .map(email => allUsers.find(user => user.email === email))
-        .filter(Boolean);
+        .map((email) => resolveUserDisplayByEmail(email))
+        .filter((user) => Boolean(user?.email));
+}
+
+function resolveUserDisplayByEmail(email) {
+    const normalizedEmail = normalizeText(email);
+    if (!normalizedEmail) return null;
+
+    const foundUser = getUserByEmail(normalizedEmail);
+    if (foundUser) {
+        return {
+            name: foundUser.name || foundUser.email || '-',
+            email: foundUser.email || '-',
+            color: foundUser.color || 'bg-blue'
+        };
+    }
+
+    if (normalizeText(currentUser?.email) === normalizedEmail) {
+        return {
+            name: currentUser?.name || currentUser?.email || '-',
+            email: currentUser?.email || '-',
+            color: currentUser?.color || 'bg-blue'
+        };
+    }
+
+    const demoUser = getKnownDemoUser();
+    if (normalizeText(demoUser.email) === normalizedEmail) {
+        return {
+            name: demoUser.name,
+            email: demoUser.email,
+            color: demoUser.color
+        };
+    }
+
+    return {
+        name: email,
+        email,
+        color: 'bg-blue'
+    };
+}
+
+function hydrateUsersFromTasks(tasks) {
+    if (!Array.isArray(tasks)) return;
+
+    const emailsFromTasks = new Set();
+
+    tasks.forEach((task) => {
+        if (task?.userEmail) {
+            emailsFromTasks.add(normalizeText(task.userEmail));
+        }
+
+        if (Array.isArray(task?.taggedUsers)) {
+            task.taggedUsers.forEach((email) => {
+                if (email) emailsFromTasks.add(normalizeText(email));
+            });
+        }
+    });
+
+    emailsFromTasks.forEach((email) => {
+        if (!email) return;
+
+        const exists = allUsers.some((user) => normalizeText(user.email) === email);
+        if (exists) return;
+
+        const fallback = buildFallbackUser(email);
+        if (fallback) {
+            allUsers.push(fallback);
+        }
+    });
+}
+
+function buildFallbackUser(email) {
+    if (!email) return null;
+
+    if (normalizeText(currentUser?.email) === normalizeText(email)) {
+        return {
+            name: currentUser?.name || currentUser?.email || email,
+            email: currentUser?.email || email,
+            color: currentUser?.color || 'bg-blue'
+        };
+    }
+
+    const demoUser = getKnownDemoUser();
+    if (normalizeText(demoUser.email) === normalizeText(email)) {
+        return demoUser;
+    }
+
+    return {
+        name: email,
+        email,
+        color: 'bg-blue'
+    };
+}
+
+function ensureCurrentUserInUsers() {
+    if (!currentUser?.email) return;
+
+    const exists = allUsers.some(
+        (user) => normalizeText(user.email) === normalizeText(currentUser.email)
+    );
+
+    if (!exists) {
+        allUsers.push({
+            name: currentUser.name || currentUser.email,
+            email: currentUser.email,
+            color: currentUser.color || 'bg-blue'
+        });
+    }
+}
+
+function ensureDemoUserInUsers() {
+    const demoUser = getKnownDemoUser();
+    const exists = allUsers.some(
+        (user) => normalizeText(user.email) === normalizeText(demoUser.email)
+    );
+
+    if (!exists) {
+        allUsers.push(demoUser);
+    }
+}
+
+function getKnownDemoUser() {
+    return {
+        name: 'Demo User',
+        email: 'demo@todoapp.com',
+        color: 'bg-blue'
+    };
 }
 
 function isOverdue(task) {
     if (task.status === 'done') return false;
+    if (!task.dueDate) return false;
+
     const due = new Date(task.dueDate);
+    if (Number.isNaN(due.getTime())) return false;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     return due < today;
 }
 
 function formatThaiDate(dateString) {
     try {
-        return new Date(dateString).toLocaleDateString('th-TH', {
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return '-';
+
+        return date.toLocaleDateString('th-TH', {
             day: 'numeric',
             month: 'short',
             year: 'numeric'
         });
-    } catch {
+    } catch (error) {
         return '-';
     }
 }
@@ -337,24 +586,20 @@ function mapPriority(priority) {
         high: 'สูง',
         urgent: 'ด่วนมาก'
     };
+
     return map[priority] || 'ปานกลาง';
 }
 
-function mapStatus(status) {
-    const map = {
-        pending: 'รอดำเนินการ',
-        doing: 'กำลังทำ',
-        done: 'เสร็จสิ้น'
-    };
-    return map[status] || 'รอดำเนินการ';
+function getInitial(name) {
+    return String(name || 'U').trim().charAt(0).toUpperCase();
 }
 
-function getInitial(name = 'U') {
-    return String(name).trim().charAt(0).toUpperCase();
+function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
 }
 
 function escapeHtml(str) {
-    return String(str)
+    return String(str || '')
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
@@ -362,7 +607,24 @@ function escapeHtml(str) {
         .replaceAll("'", '&#039;');
 }
 
+function escapeJs(str) {
+    return String(str || '')
+        .replaceAll('\\', '\\\\')
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"')
+        .replaceAll('\n', '\\n')
+        .replaceAll('\r', '\\r');
+}
+
 function logout() {
+    if (window.reviewerMode?.isDemoSession?.()) {
+        window.reviewerMode.clearDemoSessionOnly();
+        window.location.href = '/login';
+        return;
+    }
+
     localStorage.removeItem('user');
+    localStorage.removeItem('reviewerMode');
+    localStorage.removeItem('demoMode');
     window.location.href = '/login';
 }

@@ -3,17 +3,27 @@ let selectedColor = 'bg-blue';
 let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const userData = localStorage.getItem('user');
+    currentUser =
+        window.reviewerMode?.getCurrentUser?.() ||
+        JSON.parse(localStorage.getItem('user') || 'null');
 
-    if (!userData) {
+    if (!currentUser) {
         window.location.href = '/login';
         return;
     }
 
-    currentUser = JSON.parse(userData);
     renderUserProfile(currentUser);
     bindMemberForm();
     bindColorPicker();
+    bindPreviewInputs();
+
+    const addButton = document.querySelector('.btn-primary');
+    if (addButton) {
+        addButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            openMemberModal();
+        });
+    }
 
     await loadWorkspaceMembers();
     updatePreview();
@@ -38,10 +48,14 @@ function renderUserProfile(user) {
 
 async function safeJsonFetch(url, fallback, options = {}) {
     try {
-        const res = await fetch(url, options);
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.(url, options)) ||
+            (await fetch(url, options));
+
         const contentType = res.headers.get('content-type') || '';
 
         if (!contentType.includes('application/json')) {
+            console.error(`API ${url} ไม่ได้ส่ง JSON`);
             return fallback;
         }
 
@@ -77,46 +91,50 @@ function renderMembers(members) {
         return;
     }
 
-    grid.innerHTML = members.map(member => {
-        const isOwner = member.email === currentUser.email;
+    grid.innerHTML = members
+        .map((member) => {
+            const isOwner = normalizeText(member.email) === normalizeText(currentUser.email);
 
-        return `
-            <article class="member-card">
-                <div class="member-inner">
-                    <div class="member-top">
-                        <div>
+            return `
+                <article class="member-card">
+                    <div class="member-inner">
+                        <div class="member-top">
                             <div class="member-avatar ${member.color || 'bg-blue'}">
                                 ${getInitial(member.name)}
                             </div>
+
+                            ${isOwner
+                    ? `<span class="owner-badge">เจ้าของทีม</span>`
+                    : `
+                                        <button
+                                            class="delete-btn"
+                                            onclick="removeMember('${escapeJs(member.email)}')"
+                                            title="ลบสมาชิก"
+                                        >
+                                            <span class="material-symbols-outlined">delete</span>
+                                        </button>
+                                    `
+                }
                         </div>
 
-                        ${isOwner
-                ? `<span class="owner-badge">เจ้าของทีม</span>`
-                : `
-                                <button class="delete-btn" onclick="removeMember('${member.email}')">
-                                    <span class="material-symbols-outlined">delete</span>
-                                </button>
-                            `
-            }
+                        <h3 class="member-name">${escapeHtml(member.name || '-')}</h3>
+
+                        <div class="member-email">
+                            <span class="material-symbols-outlined">mail</span>
+                            ${escapeHtml(member.email || '-')}
+                        </div>
+
+                        <div class="member-divider"></div>
+
+                        <div class="member-footer">
+                            <span class="color-dot ${member.color || 'bg-blue'}"></span>
+                            สีสมาชิก: ${escapeHtml(member.color || 'bg-blue')}
+                        </div>
                     </div>
-
-                    <h3 class="member-name">${escapeHtml(member.name || '-')}</h3>
-
-                    <div class="member-email">
-                        <span class="material-symbols-outlined">mail</span>
-                        ${escapeHtml(member.email || '-')}
-                    </div>
-
-                    <div class="member-divider"></div>
-
-                    <div class="member-footer">
-                        <span class="color-dot ${member.color || 'bg-blue'}"></span>
-                        สีในทีมนี้
-                    </div>
-                </div>
-            </article>
-        `;
-    }).join('');
+                </article>
+            `;
+        })
+        .join('');
 }
 
 function updateMemberCount(count) {
@@ -126,55 +144,41 @@ function updateMemberCount(count) {
 
 function openMemberModal() {
     const modal = document.getElementById('memberModal');
-    if (modal) modal.style.display = 'flex';
+    if (!modal) return;
+    modal.style.display = 'flex';
+    updatePreview();
 }
 
 function closeMemberModal() {
     const modal = document.getElementById('memberModal');
-    if (modal) modal.style.display = 'none';
-
-    const form = document.getElementById('memberForm');
-    if (form) form.reset();
-
-    selectedColor = 'bg-blue';
-    document.querySelectorAll('.color-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.color === 'bg-blue');
-    });
-
-    updatePreview();
+    if (!modal) return;
+    modal.style.display = 'none';
 }
 
 function bindColorPicker() {
-    const buttons = document.querySelectorAll('.color-btn');
+    const buttons = document.querySelectorAll('#colorPicker .color-btn');
 
-    buttons.forEach(btn => {
+    buttons.forEach((btn) => {
         btn.addEventListener('click', () => {
-            selectedColor = btn.dataset.color;
-            buttons.forEach(b => b.classList.remove('active'));
+            buttons.forEach((item) => item.classList.remove('active'));
             btn.classList.add('active');
+            selectedColor = btn.dataset.color || 'bg-blue';
             updatePreview();
         });
     });
-
-    document.getElementById('memberName')?.addEventListener('input', updatePreview);
-    document.getElementById('memberEmail')?.addEventListener('input', updatePreview);
 }
 
-function updatePreview() {
-    const name = document.getElementById('memberName')?.value.trim() || 'ชื่อสมาชิก';
-    const email = document.getElementById('memberEmail')?.value.trim() || 'อีเมล';
+function bindPreviewInputs() {
+    const nameInput = document.getElementById('memberName');
+    const emailInput = document.getElementById('memberEmail');
 
-    const avatar = document.getElementById('previewAvatar');
-    const nameEl = document.getElementById('previewName');
-    const emailEl = document.getElementById('previewEmail');
-
-    if (avatar) {
-        avatar.className = `member-avatar ${selectedColor}`;
-        avatar.textContent = getInitial(name === 'ชื่อสมาชิก' ? '?' : name);
+    if (nameInput) {
+        nameInput.addEventListener('input', updatePreview);
     }
 
-    if (nameEl) nameEl.textContent = name;
-    if (emailEl) emailEl.textContent = email;
+    if (emailInput) {
+        emailInput.addEventListener('input', updatePreview);
+    }
 }
 
 function bindMemberForm() {
@@ -184,59 +188,91 @@ function bindMemberForm() {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        const typedName = document.getElementById('memberName').value.trim();
-        const email = document.getElementById('memberEmail').value.trim().toLowerCase();
+        const name = (document.getElementById('memberName')?.value || '').trim();
+        const email = (document.getElementById('memberEmail')?.value || '').trim();
 
-        if (!typedName || !email) {
+        if (!name || !email) {
             alert('กรุณากรอกชื่อและอีเมล');
-            return;
-        }
-
-        const check = await safeJsonFetch(
-            `/api/users/check?email=${encodeURIComponent(email)}`,
-            { exists: false }
-        );
-
-        if (!check.exists) {
-            alert('ไม่พบผู้ใช้นี้ในระบบ กรุณาให้เขาสมัครก่อน');
             return;
         }
 
         const response = await safeJsonFetch(
             '/api/workspace-members',
-            { success: false, message: 'เกิดข้อผิดพลาด' },
+            { success: false, message: 'ไม่สามารถเพิ่มสมาชิกได้' },
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({
                     ownerEmail: currentUser.email,
                     email,
+                    name,
                     color: selectedColor
                 })
             }
         );
 
         if (!response.success) {
-            alert(response.message || 'ไม่สามารถเพิ่มสมาชิกเข้าทีมได้');
+            alert(response.message || 'เพิ่มสมาชิกไม่สำเร็จ');
             return;
         }
 
+        alert('เพิ่มสมาชิกสำเร็จ');
+
+        form.reset();
+        resetColorPicker();
+        updatePreview();
         closeMemberModal();
         await loadWorkspaceMembers();
-        alert('เพิ่มสมาชิกเข้าทีมสำเร็จ');
     });
 }
 
+function resetColorPicker() {
+    selectedColor = 'bg-blue';
+
+    document.querySelectorAll('#colorPicker .color-btn').forEach((btn) => {
+        btn.classList.remove('active');
+        if (btn.dataset.color === 'bg-blue') {
+            btn.classList.add('active');
+        }
+    });
+}
+
+function updatePreview() {
+    const previewAvatar = document.getElementById('previewAvatar');
+    const previewName = document.getElementById('previewName');
+    const previewEmail = document.getElementById('previewEmail');
+
+    const nameValue = (document.getElementById('memberName')?.value || '').trim();
+    const emailValue = (document.getElementById('memberEmail')?.value || '').trim();
+
+    if (previewAvatar) {
+        previewAvatar.className = `member-avatar ${selectedColor}`;
+        previewAvatar.textContent = getInitial(nameValue || '?');
+    }
+
+    if (previewName) {
+        previewName.textContent = nameValue || 'ชื่อสมาชิก';
+    }
+
+    if (previewEmail) {
+        previewEmail.textContent = emailValue || 'อีเมล';
+    }
+}
+
 async function removeMember(memberEmail) {
-    const ok = confirm('ต้องการลบสมาชิกคนนี้ออกจากทีมใช่หรือไม่?');
-    if (!ok) return;
+    const confirmed = window.confirm(`ต้องการลบสมาชิก ${memberEmail} ออกจากทีมหรือไม่?`);
+    if (!confirmed) return;
 
     const response = await safeJsonFetch(
         '/api/workspace-members',
-        { success: false, message: 'เกิดข้อผิดพลาด' },
+        { success: false, message: 'ไม่สามารถลบสมาชิกได้' },
         {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
                 ownerEmail: currentUser.email,
                 memberEmail
@@ -245,16 +281,20 @@ async function removeMember(memberEmail) {
     );
 
     if (!response.success) {
-        alert(response.message || 'ไม่สามารถลบสมาชิกได้');
+        alert(response.message || 'ลบสมาชิกไม่สำเร็จ');
         return;
     }
 
+    alert('ลบสมาชิกสำเร็จ');
     await loadWorkspaceMembers();
-    alert('ลบสมาชิกออกจากทีมสำเร็จ');
 }
 
-function getInitial(name = 'U') {
-    return String(name).trim().charAt(0).toUpperCase();
+function getInitial(name) {
+    return String(name || 'U').trim().charAt(0).toUpperCase();
+}
+
+function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
 }
 
 function escapeHtml(str) {
@@ -266,12 +306,22 @@ function escapeHtml(str) {
         .replaceAll("'", '&#039;');
 }
 
-function logout() {
-    localStorage.removeItem('user');
-    window.location.href = '/login';
+function escapeJs(str) {
+    return String(str || '')
+        .replaceAll('\\', '\\\\')
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"');
 }
 
-window.addEventListener('click', (e) => {
-    const modal = document.getElementById('memberModal');
-    if (e.target === modal) closeMemberModal();
-});
+function logout() {
+    if (window.reviewerMode?.isDemoSession?.()) {
+        window.reviewerMode.clearDemoSessionOnly();
+        window.location.href = '/login';
+        return;
+    }
+
+    localStorage.removeItem('user');
+    localStorage.removeItem('reviewerMode');
+    localStorage.removeItem('demoMode');
+    window.location.href = '/login';
+}

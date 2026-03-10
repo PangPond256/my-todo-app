@@ -1,5 +1,3 @@
-let taggedMembers = [];
-
 function openTaskModal() {
     const modal = document.getElementById('taskModal');
     if (!modal) return;
@@ -22,15 +20,21 @@ function closeTaskModal() {
 
 async function loadMembersForTagging() {
     try {
-        const currentUser = JSON.parse(localStorage.getItem('user'));
-        const res = await fetch('/api/users/all');
+        const currentUser =
+            window.reviewerMode?.getCurrentUser?.() ||
+            JSON.parse(localStorage.getItem('user') || 'null');
+
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.('/api/users/all')) ||
+            (await fetch('/api/users/all'));
+
         const users = await res.json();
 
         const container = document.getElementById('member-list-tags');
         if (!container) return;
 
         const filteredUsers = Array.isArray(users)
-            ? users.filter(u => u.email !== currentUser?.email)
+            ? users.filter((u) => normalizeText(u.email) !== normalizeText(currentUser?.email))
             : [];
 
         if (!filteredUsers.length) {
@@ -38,16 +42,19 @@ async function loadMembersForTagging() {
             return;
         }
 
-        container.innerHTML = filteredUsers.map(u => `
+        container.innerHTML = filteredUsers
+            .map(
+                (u) => `
             <label class="tag-chip">
-                <input type="checkbox" name="taggedUsers" value="${u.email}">
+                <input type="checkbox" name="taggedUsers" value="${escapeHtml(u.email)}">
                 <div class="chip-content">
                     <span class="avatar-dot ${u.color || 'bg-blue'}"></span>
-                    <span>${u.name}</span>
+                    <span>${escapeHtml(u.name || 'Unknown')}</span>
                 </div>
             </label>
-        `).join('');
-
+        `
+            )
+            .join('');
     } catch (err) {
         console.error('Load members error:', err);
     }
@@ -55,7 +62,10 @@ async function loadMembersForTagging() {
 
 async function loadCategoriesForTaskModal() {
     try {
-        const res = await fetch('/api/categories/all');
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.('/api/categories/all')) ||
+            (await fetch('/api/categories/all'));
+
         const categories = await res.json();
 
         const select = document.getElementById('taskCategory');
@@ -63,7 +73,7 @@ async function loadCategoriesForTaskModal() {
 
         select.innerHTML = `<option value="">เลือกหมวดหมู่</option>`;
 
-        categories.forEach(cat => {
+        (Array.isArray(categories) ? categories : []).forEach((cat) => {
             const option = document.createElement('option');
             option.value = cat._id;
             option.textContent = cat.name;
@@ -75,14 +85,12 @@ async function loadCategoriesForTaskModal() {
         if (preselectedId) {
             select.value = preselectedId;
         }
-
     } catch (err) {
         console.error('Load categories error:', err);
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-
     const taskForm = document.getElementById('addTaskForm');
     if (!taskForm) return;
 
@@ -90,81 +98,102 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         try {
-            const user = JSON.parse(localStorage.getItem('user'));
+            const user =
+                window.reviewerMode?.getCurrentUser?.() ||
+                JSON.parse(localStorage.getItem('user') || 'null');
 
             if (!user) {
-                alert('กรุณาเข้าสู่ระบบใหม่');
                 window.location.href = '/login';
                 return;
             }
 
-            const tagged = Array.from(
-                document.querySelectorAll('input[name="taggedUsers"]:checked')
-            ).map(cb => cb.value);
-
+            const formData = new FormData(taskForm);
             const categorySelect = document.getElementById('taskCategory');
-            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
+            const selectedOption =
+                categorySelect?.options?.[categorySelect.selectedIndex] || null;
 
-            const taskData = {
+            const taggedUsers = Array.from(
+                document.querySelectorAll('input[name="taggedUsers"]:checked')
+            ).map((input) => input.value);
+
+            const payload = {
                 userEmail: user.email,
-                title: e.target.title.value,
-                description: e.target.description.value,
-                status: e.target.status.value,
-                priority: e.target.priority.value,
-                dueDate: e.target.dueDate.value,
-                taggedUsers: tagged,
-                categoryId: categorySelect.value || null,
-                categoryName: categorySelect.value ? selectedOption.dataset.name : ''
+                title: String(formData.get('title') || '').trim(),
+                description: String(formData.get('description') || '').trim(),
+                status: String(formData.get('status') || 'pending'),
+                priority: String(formData.get('priority') || 'medium'),
+                dueDate: formData.get('dueDate'),
+                taggedUsers,
+                categoryId: formData.get('categoryId') || '',
+                categoryName: selectedOption?.dataset?.name || ''
             };
 
-            const response = await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(taskData)
-            });
-
-            const result = await response.json();
-
-            if (!result.success) {
-                alert(result.message || 'ไม่สามารถเพิ่มงานได้');
+            if (!payload.title || !payload.dueDate) {
+                alert('กรุณากรอกข้อมูลงานให้ครบ');
                 return;
             }
 
-            closeTaskModal();
-            e.target.reset();
+            const res =
+                (await window.reviewerMode?.reviewerFetch?.('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                })) ||
+                (await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                }));
 
-            const dateInput = document.getElementById('taskDueDate');
-            if (dateInput) {
-                dateInput.value = new Date().toISOString().split('T')[0];
+            const result = await res.json();
+
+            if (!result.success) {
+                alert(result.message || 'เพิ่มงานไม่สำเร็จ');
+                return;
             }
+
+            alert('เพิ่มงานสำเร็จ');
+
+            taskForm.reset();
+            closeTaskModal();
 
             localStorage.removeItem('preselectedCategoryId');
             localStorage.removeItem('preselectedCategoryName');
-
-            if (typeof loadDashboardData === 'function') {
-                await loadDashboardData(user.email);
-            }
-
-            if (typeof loadCategories === 'function') {
-                await loadCategories();
-            }
 
             if (typeof loadTasks === 'function') {
                 await loadTasks();
             }
 
-            alert('เพิ่มงานสำเร็จ');
+            if (typeof loadDashboardData === 'function') {
+                await loadDashboardData(user.email);
+            }
+        } catch (error) {
+            console.error('Add task error:', error);
+            alert('เกิดข้อผิดพลาดในการเพิ่มงาน');
+        }
+    });
 
-        } catch (err) {
-            console.error('Save task error:', err);
-            alert('เกิดข้อผิดพลาดในการบันทึกงาน');
+    window.addEventListener('click', (e) => {
+        const modal = document.getElementById('taskModal');
+        if (e.target === modal) {
+            closeTaskModal();
         }
     });
 });
 
-window.addEventListener('click', (e) => {
-    const modal = document.getElementById('taskModal');
-    if (e.target === modal) {
-        closeTaskModal();
-    }
-});
+function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}

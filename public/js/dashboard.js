@@ -1,18 +1,20 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    const userData = localStorage.getItem('user');
+    const user =
+        window.reviewerMode?.getCurrentUser?.() ||
+        JSON.parse(localStorage.getItem('user') || 'null');
 
-    if (!userData) {
+    if (!user) {
         window.location.href = '/login';
         return;
     }
 
-    const user = JSON.parse(userData);
     renderUserProfile(user);
 
     const btnAdd = document.querySelector('.btn-add');
     if (btnAdd) {
         btnAdd.addEventListener('click', (e) => {
             e.preventDefault();
+
             if (typeof openTaskModal === 'function') {
                 openTaskModal();
             }
@@ -45,7 +47,10 @@ function renderUserProfile(user) {
 
 async function safeJsonFetch(url, fallback, options = {}) {
     try {
-        const res = await fetch(url, options);
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.(url, options)) ||
+            (await fetch(url, options));
+
         const contentType = res.headers.get('content-type') || '';
 
         if (!contentType.includes('application/json')) {
@@ -145,25 +150,35 @@ async function loadTeamMembers(ownerEmail) {
         return;
     }
 
-    list.innerHTML = members.map(u => `
-        <div class="member-card">
-            <div class="avatar-circle mini ${u.color || 'bg-blue'}">
-                ${(u.name || 'U').charAt(0).toUpperCase()}
+    list.innerHTML = members
+        .map(
+            (u) => `
+            <div class="member-card">
+                <div class="avatar-circle mini ${u.color || 'bg-blue'}">
+                    ${(u.name || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div class="member-card-text">
+                    <strong>${escapeHtml(u.name || '-')}</strong>
+                    <small>${escapeHtml(u.email || '-')}</small>
+                </div>
             </div>
-            <div class="member-details">
-                <p class="name">${escapeHtml(u.name || '-')}</p>
-                <p class="email">${escapeHtml(u.email || '-')}</p>
-            </div>
-        </div>
-    `).join('');
+        `
+        )
+        .join('');
 }
 
 async function loadCategories() {
     const categories = await safeJsonFetch('/api/categories/all', []);
+    renderCategoryList(Array.isArray(categories) ? categories : []);
+}
+
+function renderCategoryList(categories) {
     const list = document.getElementById('category-list');
     const countLabel = document.querySelector('.category-count');
 
-    if (countLabel) countLabel.textContent = `ทั้งหมด ${categories.length} หมวดหมู่`;
+    if (countLabel) {
+        countLabel.textContent = `ทั้งหมด ${categories.length} หมวดหมู่`;
+    }
 
     if (!list) return;
 
@@ -172,39 +187,55 @@ async function loadCategories() {
         return;
     }
 
-    list.innerHTML = categories.map(cat => `
-        <div class="category-item-card">
-            <div class="category-icon ${cat.color || 'bg-blue'}">
-                <span class="material-symbols-outlined">${escapeHtml(cat.icon || 'folder')}</span>
+    list.innerHTML = categories
+        .map(
+            (cat) => `
+            <div class="category-mini-card">
+                <div class="category-mini-top">
+                    <div class="category-mini-icon ${cat.color || 'bg-blue'}">
+                        <span class="material-symbols-outlined">${escapeHtml(cat.icon || 'folder')}</span>
+                    </div>
+                    <span class="category-mini-meta">หมวดหมู่</span>
+                </div>
+
+                <h4 class="category-mini-name">${escapeHtml(cat.name || '-')}</h4>
+
+                <div class="category-mini-bar ${cat.color || 'bg-blue'}"></div>
             </div>
-            <p class="category-name">${escapeHtml(cat.name || '-')}</p>
-        </div>
-    `).join('');
+        `
+        )
+        .join('');
 }
 
 function renderPriorityChart(tasks = []) {
     const canvas = document.getElementById('priorityChart');
-    if (!canvas) return;
+    if (!canvas || typeof Chart === 'undefined') return;
 
     const ctx = canvas.getContext('2d');
     const counts = { low: 0, medium: 0, high: 0, urgent: 0 };
 
-    tasks.forEach(t => {
-        if (counts[t.priority] !== undefined) counts[t.priority]++;
+    tasks.forEach((task) => {
+        if (counts[task.priority] !== undefined) {
+            counts[task.priority] += 1;
+        }
     });
 
-    if (window.myPriorityChart) window.myPriorityChart.destroy();
+    if (window.myPriorityChart) {
+        window.myPriorityChart.destroy();
+    }
 
     window.myPriorityChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: ['ต่ำ', 'ปานกลาง', 'สูง', 'ด่วนมาก'],
-            datasets: [{
-                data: [counts.low, counts.medium, counts.high, counts.urgent],
-                backgroundColor: ['#9ca3af', '#3b82f6', '#f59e0b', '#ef4444'],
-                borderRadius: 12,
-                barThickness: 50
-            }]
+            datasets: [
+                {
+                    data: [counts.low, counts.medium, counts.high, counts.urgent],
+                    backgroundColor: ['#9ca3af', '#3b82f6', '#f59e0b', '#ef4444'],
+                    borderRadius: 12,
+                    barThickness: 42
+                }
+            ]
         },
         options: {
             responsive: true,
@@ -224,13 +255,19 @@ function renderPriorityChart(tasks = []) {
 
 function renderStatusChart(stats) {
     const canvas = document.getElementById('statusChart');
-    if (!canvas) return;
+    if (!canvas || typeof Chart === 'undefined') return;
 
     const ctx = canvas.getContext('2d');
-    const total = stats.total || (stats.pending + stats.doing + stats.done);
-    const getPercent = (value) => total > 0 ? Math.round((value / total) * 100) : 0;
+    const total = stats.total || stats.pending + stats.doing + stats.done;
 
-    if (window.myStatusChart) window.myStatusChart.destroy();
+    const getPercent = (value) => {
+        if (total <= 0) return 0;
+        return Math.round((value / total) * 100);
+    };
+
+    if (window.myStatusChart) {
+        window.myStatusChart.destroy();
+    }
 
     window.myStatusChart = new Chart(ctx, {
         type: 'doughnut',
@@ -240,16 +277,23 @@ function renderStatusChart(stats) {
                 `กำลังทำ: ${getPercent(stats.doing)}%`,
                 `เสร็จสิ้น: ${getPercent(stats.done)}%`
             ],
-            datasets: [{
-                data: [stats.pending, stats.doing, stats.done],
-                backgroundColor: ['#f97316', '#6366f1', '#22c55e'],
-                borderWidth: 0
-            }]
+            datasets: [
+                {
+                    data: [stats.pending, stats.doing, stats.done],
+                    backgroundColor: ['#f97316', '#6366f1', '#22c55e'],
+                    borderWidth: 0
+                }
+            ]
         },
         options: {
-            cutout: '75%',
+            cutout: '72%',
             responsive: true,
-            maintainAspectRatio: false
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
         }
     });
 }
@@ -266,24 +310,26 @@ function renderUpcomingTasks(tasks = [], currentEmail = '') {
     if (!list) return;
 
     if (!tasks.length) {
-        list.innerHTML = `<div class="empty-state"><p>ไม่มีงานใกล้กำหนด</p></div>`;
+        list.innerHTML = `<div class="empty-state"><p>ไม่มีงานใกล้ถึงกำหนด</p></div>`;
         return;
     }
 
-    list.innerHTML = tasks.map(t => `
-        <div class="mini-item">
-            <div class="item-info">
-                <strong>${escapeHtml(t.title || '-')}</strong>
-                <small style="display:block; margin-top:4px;">
-                    <span class="material-symbols-outlined" style="font-size:12px;">calendar_today</span>
-                    ${new Date(t.dueDate).toLocaleDateString('th-TH')}
-                </small>
-                <small style="display:block; margin-top:4px; color:#64748b;">
-                    ${getTaskOwnershipLabel(t, currentEmail)}
-                </small>
+    list.innerHTML = tasks
+        .map((t) => `
+            <div class="mini-item">
+                <div class="item-info">
+                    <strong>${escapeHtml(t.title || '-')}</strong>
+                    <small>
+                        <span class="material-symbols-outlined">calendar_today</span>
+                        ${formatThaiDate(t.dueDate)}
+                    </small>
+                    <small class="task-label-muted">
+                        ${getTaskOwnershipLabel(t, currentEmail)}
+                    </small>
+                </div>
             </div>
-        </div>
-    `).join('');
+        `)
+        .join('');
 }
 
 function renderOverdueTasks(tasks = [], currentEmail = '') {
@@ -295,20 +341,22 @@ function renderOverdueTasks(tasks = [], currentEmail = '') {
         return;
     }
 
-    list.innerHTML = tasks.map(t => `
-        <div class="mini-item overdue">
-            <span class="material-symbols-outlined" style="color:#ef4444;">report</span>
-            <div class="item-info">
-                <strong>${escapeHtml(t.title || '-')}</strong>
-                <small style="display:block; color:#ef4444;">
-                    เกินกำหนดเมื่อ: ${new Date(t.dueDate).toLocaleDateString('th-TH')}
-                </small>
-                <small style="display:block; margin-top:4px; color:#64748b;">
-                    ${getTaskOwnershipLabel(t, currentEmail)}
-                </small>
+    list.innerHTML = tasks
+        .map((t) => `
+            <div class="mini-item overdue">
+                <span class="material-symbols-outlined overdue-icon">report</span>
+                <div class="item-info">
+                    <strong>${escapeHtml(t.title || '-')}</strong>
+                    <small class="danger-text">
+                        เกินกำหนดเมื่อ: ${formatThaiDate(t.dueDate)}
+                    </small>
+                    <small class="task-label-muted">
+                        ${getTaskOwnershipLabel(t, currentEmail)}
+                    </small>
+                </div>
             </div>
-        </div>
-    `).join('');
+        `)
+        .join('');
 }
 
 function renderUpcomingTasksFromTasks(tasks = [], currentEmail = '') {
@@ -319,7 +367,7 @@ function renderUpcomingTasksFromTasks(tasks = [], currentEmail = '') {
     upcomingEnd.setDate(upcomingEnd.getDate() + 7);
     upcomingEnd.setHours(23, 59, 59, 999);
 
-    const upcoming = tasks.filter(t => {
+    const upcoming = tasks.filter((t) => {
         const due = new Date(t.dueDate);
         return due >= today && due <= upcomingEnd && t.status !== 'done';
     });
@@ -331,7 +379,7 @@ function renderOverdueTasksFromTasks(tasks = [], currentEmail = '') {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const overdue = tasks.filter(t => {
+    const overdue = tasks.filter((t) => {
         const due = new Date(t.dueDate);
         return due < today && t.status !== 'done';
     });
@@ -339,9 +387,16 @@ function renderOverdueTasksFromTasks(tasks = [], currentEmail = '') {
     renderOverdueTasks(overdue, currentEmail);
 }
 
-function logout() {
-    localStorage.removeItem('user');
-    window.location.href = '/login';
+function formatThaiDate(dateString) {
+    try {
+        return new Date(dateString).toLocaleDateString('th-TH', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        });
+    } catch (error) {
+        return '-';
+    }
 }
 
 function escapeHtml(str) {
@@ -351,4 +406,17 @@ function escapeHtml(str) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function logout() {
+    if (window.reviewerMode?.isDemoSession?.()) {
+        window.reviewerMode.clearDemoSessionOnly();
+        window.location.href = '/login';
+        return;
+    }
+
+    localStorage.removeItem('user');
+    localStorage.removeItem('reviewerMode');
+    localStorage.removeItem('demoMode');
+    window.location.href = '/login';
 }

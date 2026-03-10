@@ -4,25 +4,32 @@ let selectedColor = 'bg-blue';
 let selectedIcon = 'work';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const userData = localStorage.getItem('user');
+    currentUser =
+        window.reviewerMode?.getCurrentUser?.() ||
+        JSON.parse(localStorage.getItem('user') || 'null');
 
-    if (!userData) {
+    if (!currentUser) {
         window.location.href = '/login';
         return;
     }
-
-    currentUser = JSON.parse(userData);
 
     renderUserProfile(currentUser);
     bindCategoryForm();
     bindColorPicker();
     bindIconPicker();
 
+    const addButton = document.querySelector('.btn-primary');
+    if (addButton) {
+        addButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            openCategoryModal();
+        });
+    }
+
     await loadCategories();
     updatePreview();
 });
 
-// show name email avatar
 function renderUserProfile(user) {
     const nameEl = document.querySelector('.user-name');
     const emailEl = document.querySelector('.user-email');
@@ -40,10 +47,12 @@ function renderUserProfile(user) {
     }
 }
 
-// เรียก API
 async function safeJsonFetch(url, fallback, options = {}) {
     try {
-        const res = await fetch(url, options);
+        const res =
+            (await window.reviewerMode?.reviewerFetch?.(url, options)) ||
+            (await fetch(url, options));
+
         const contentType = res.headers.get('content-type') || '';
 
         if (!contentType.includes('application/json')) {
@@ -65,7 +74,6 @@ async function loadCategories() {
     updateCategoryCount(allCategories.length);
 }
 
-// แสดงรายการหมวดหมู่เป็นการ์ดในหน้า category
 function renderCategories(categories) {
     const grid = document.getElementById('categoryGrid');
     if (!grid) return;
@@ -80,12 +88,14 @@ function renderCategories(categories) {
         return;
     }
 
-    grid.innerHTML = categories.map(category => `
+    grid.innerHTML = categories
+        .map(
+            (category) => `
         <article class="category-card">
-
-            <button 
+            <button
                 class="delete-icon-btn"
-                onclick="deleteCategory('${category._id}', '${escapeJs(category.name)}')"
+                onclick="deleteCategory('${escapeJs(category._id)}', '${escapeJs(category.name)}')"
+                title="ลบหมวดหมู่"
             >
                 <span class="material-symbols-outlined">delete</span>
             </button>
@@ -100,12 +110,13 @@ function renderCategories(categories) {
                 <div class="category-divider"></div>
 
                 <div class="category-footer">
-                    <span class="category-meta">พร้อมใช้งาน</span>
+                    <span class="category-meta">${escapeHtml(category.color || 'bg-blue')} • ${escapeHtml(category.icon || 'folder')}</span>
 
                     <button
                         type="button"
                         class="btn-add-task"
-                        onclick="goToAddTask('${category._id}', '${escapeJs(category.name)}')"
+                        onclick="goToAddTask('${escapeJs(category._id)}', '${escapeJs(category.name)}')"
+                        title="เพิ่มงาน"
                     >
                         <span class="material-symbols-outlined" style="font-size:18px;">add</span>
                         เพิ่มงาน
@@ -113,10 +124,11 @@ function renderCategories(categories) {
                 </div>
             </div>
         </article>
-    `).join('');
+    `
+        )
+        .join('');
 }
 
-// อัปเดตจำนวนหมวดหมู่ที่แสดงบนหน้า
 function updateCategoryCount(count) {
     const total = document.getElementById('totalCategoryCount');
     if (total) {
@@ -134,103 +146,65 @@ function openCategoryModal() {
 
 function closeCategoryModal() {
     const modal = document.getElementById('categoryModal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
+    if (!modal) return;
 
-    const form = document.getElementById('categoryForm');
-    if (form) {
-        form.reset();
-    }
-
-    selectedColor = 'bg-blue';
-    selectedIcon = 'work';
-
-    document.querySelectorAll('.color-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.color === 'bg-blue');
-    });
-
-    document.querySelectorAll('.icon-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.icon === 'work');
-    });
-
-    updatePreview();
+    modal.style.display = 'none';
 }
 
 function bindColorPicker() {
-    const buttons = document.querySelectorAll('.color-btn');
+    const buttons = document.querySelectorAll('#colorPicker .color-btn');
 
-    buttons.forEach(btn => {
+    buttons.forEach((btn) => {
         btn.addEventListener('click', () => {
-            selectedColor = btn.dataset.color;
-            buttons.forEach(b => b.classList.remove('active'));
+            buttons.forEach((item) => item.classList.remove('active'));
             btn.classList.add('active');
+            selectedColor = btn.dataset.color || 'bg-blue';
             updatePreview();
         });
     });
-
-    const categoryNameInput = document.getElementById('categoryName');
-    if (categoryNameInput) {
-        categoryNameInput.addEventListener('input', updatePreview);
-    }
 }
 
 function bindIconPicker() {
-    const buttons = document.querySelectorAll('.icon-btn');
+    const buttons = document.querySelectorAll('#iconPicker .icon-btn');
 
-    buttons.forEach(btn => {
+    buttons.forEach((btn) => {
         btn.addEventListener('click', () => {
-            selectedIcon = btn.dataset.icon;
-            buttons.forEach(b => b.classList.remove('active'));
+            buttons.forEach((item) => item.classList.remove('active'));
             btn.classList.add('active');
+            selectedIcon = btn.dataset.icon || 'work';
             updatePreview();
         });
     });
-}
-
-function updatePreview() {
-    const name = document.getElementById('categoryName')?.value.trim() || 'ชื่อหมวดหมู่';
-
-    const iconBox = document.getElementById('previewCategoryIcon');
-    const nameEl = document.getElementById('previewCategoryName');
-    const metaEl = document.getElementById('previewCategoryMeta');
-
-    if (iconBox) {
-        iconBox.className = `preview-icon ${selectedColor}`;
-        iconBox.innerHTML = `
-            <span class="material-symbols-outlined">${selectedIcon}</span>
-        `;
-    }
-
-    if (nameEl) {
-        nameEl.textContent = name;
-    }
-
-    if (metaEl) {
-        metaEl.textContent = `${selectedColor} • ${selectedIcon}`;
-    }
 }
 
 function bindCategoryForm() {
     const form = document.getElementById('categoryForm');
+    const nameInput = document.getElementById('categoryName');
+
+    if (nameInput) {
+        nameInput.addEventListener('input', updatePreview);
+    }
+
     if (!form) return;
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        const name = document.getElementById('categoryName')?.value.trim();
+        const name = (document.getElementById('categoryName')?.value || '').trim();
 
         if (!name) {
-            alert('กรุณากรอกชื่อหมวดหมู่');
+            alert('กรุณาระบุชื่อหมวดหมู่');
             return;
         }
 
         const response = await safeJsonFetch(
             '/api/categories',
-            { success: false, message: 'เกิดข้อผิดพลาด' },
+            { success: false, message: 'ไม่สามารถสร้างหมวดหมู่ได้' },
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({
                     name,
                     color: selectedColor,
@@ -240,56 +214,88 @@ function bindCategoryForm() {
         );
 
         if (!response.success) {
-            alert(response.message || 'ไม่สามารถเพิ่มหมวดหมู่ได้');
+            alert(response.message || 'สร้างหมวดหมู่ไม่สำเร็จ');
             return;
         }
 
+        alert('เพิ่มหมวดหมู่สำเร็จ');
+
+        form.reset();
+        resetCategoryPicker();
+        updatePreview();
         closeCategoryModal();
         await loadCategories();
-        alert('เพิ่มหมวดหมู่สำเร็จ');
     });
+}
+
+function resetCategoryPicker() {
+    selectedColor = 'bg-blue';
+    selectedIcon = 'work';
+
+    document.querySelectorAll('#colorPicker .color-btn').forEach((btn) => {
+        btn.classList.remove('active');
+        if (btn.dataset.color === 'bg-blue') {
+            btn.classList.add('active');
+        }
+    });
+
+    document.querySelectorAll('#iconPicker .icon-btn').forEach((btn) => {
+        btn.classList.remove('active');
+        if (btn.dataset.icon === 'work') {
+            btn.classList.add('active');
+        }
+    });
+}
+
+function updatePreview() {
+    const name = (document.getElementById('categoryName')?.value || '').trim();
+
+    const previewIcon = document.getElementById('previewCategoryIcon');
+    const previewName = document.getElementById('previewCategoryName');
+    const previewMeta = document.getElementById('previewCategoryMeta');
+
+    if (previewIcon) {
+        previewIcon.className = `preview-icon ${selectedColor}`;
+        previewIcon.innerHTML = `<span class="material-symbols-outlined">${escapeHtml(selectedIcon)}</span>`;
+    }
+
+    if (previewName) {
+        previewName.textContent = name || 'ชื่อหมวดหมู่';
+    }
+
+    if (previewMeta) {
+        previewMeta.textContent = `${selectedColor} • ${selectedIcon}`;
+    }
+}
+
+async function deleteCategory(categoryId, categoryName) {
+    const confirmed = window.confirm(`ต้องการลบหมวดหมู่ "${categoryName}" หรือไม่?`);
+    if (!confirmed) return;
+
+    const response = await safeJsonFetch(
+        `/api/categories/${categoryId}`,
+        { success: false, message: 'ไม่สามารถลบหมวดหมู่ได้' },
+        {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }
+    );
+
+    if (!response.success) {
+        alert(response.message || 'ลบหมวดหมู่ไม่สำเร็จ');
+        return;
+    }
+
+    alert('ลบหมวดหมู่สำเร็จ');
+    await loadCategories();
 }
 
 function goToAddTask(categoryId, categoryName) {
     localStorage.setItem('preselectedCategoryId', categoryId);
     localStorage.setItem('preselectedCategoryName', categoryName);
     window.location.href = '/tasks-page';
-}
-
-async function deleteCategory(categoryId, categoryName) {
-
-    const confirmed = confirm(`ต้องการลบหมวดหมู่ "${categoryName}" ใช่หรือไม่?`);
-
-    if (!confirmed) return;
-
-    try {
-
-        const response = await fetch(`/api/categories/${categoryId}`, {
-            method: 'DELETE'
-        });
-
-        const result = await response.json();
-
-        if (!result.success) {
-            alert(result.message || 'ไม่สามารถลบหมวดหมู่ได้');
-            return;
-        }
-
-        await loadCategories();
-
-        alert('ลบหมวดหมู่สำเร็จ');
-
-    } catch (error) {
-
-        console.error('Delete category error:', error);
-        alert('เกิดข้อผิดพลาดในการลบหมวดหมู่');
-
-    }
-}
-
-function logout() {
-    localStorage.removeItem('user');
-    window.location.href = '/login';
 }
 
 function escapeHtml(str) {
@@ -302,14 +308,21 @@ function escapeHtml(str) {
 }
 
 function escapeJs(str) {
-    return String(str)
+    return String(str || '')
         .replaceAll('\\', '\\\\')
-        .replaceAll("'", "\\'");
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"');
 }
 
-window.addEventListener('click', (e) => {
-    const modal = document.getElementById('categoryModal');
-    if (e.target === modal) {
-        closeCategoryModal();
+function logout() {
+    if (window.reviewerMode?.isDemoSession?.()) {
+        window.reviewerMode.clearDemoSessionOnly();
+        window.location.href = '/login';
+        return;
     }
-});
+
+    localStorage.removeItem('user');
+    localStorage.removeItem('reviewerMode');
+    localStorage.removeItem('demoMode');
+    window.location.href = '/login';
+}
